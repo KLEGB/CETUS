@@ -1,0 +1,12 @@
+# Python 3.12+
+# Core CTTC / UHI model
+numpy
+rasterio
+
+# Preprocess utilities
+pandas
+geopandas
+shapely
+pyproj
+psutil
+optuna
