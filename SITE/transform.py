@@ -14,7 +14,7 @@ from rasterio.features import rasterize, shapes
 from rasterio.transform import from_origin
 from shapely.geometry import shape
 
-from scripts.preprocess.extract_inx_landuse import extract_layers
+from .extract_inx_landuse import extract_layers
 
 
 DEFAULT_BUILDING_SCALE = 0.1
@@ -24,6 +24,19 @@ VEGETATION_CODE = "0200GG"
 WATER_CODE = "0200WW"
 ROAD_CODE = "0200ST"
 SOIL_CODE = "000000"
+
+
+def _normalize_bounds(bounds: tuple[float, float, float, float] | None) -> tuple[float, float, float, float] | None:
+    if bounds is None:
+        return None
+    xmin, ymin, xmax, ymax = bounds
+    xmin = float(xmin)
+    ymin = float(ymin)
+    xmax = float(xmax)
+    ymax = float(ymax)
+    if xmin >= xmax or ymin >= ymax:
+        raise ValueError("bounds must satisfy xmin < xmax and ymin < ymax")
+    return xmin, ymin, xmax, ymax
 
 
 def _resolve_height_column(gdf: gpd.GeoDataFrame, requested: str) -> str:
@@ -219,7 +232,8 @@ def shp_to_tif(
     *,
     resolution: float = DEFAULT_RESOLUTION,
     height_column: str = DEFAULT_HEIGHT_COLUMN,
-    all_touched: bool = True,
+    all_touched: bool = False,
+    bounds: tuple[float, float, float, float] | None = None,
     **_unused: Any,
 ) -> Path:
     shp_path = Path(shp_path)
@@ -235,7 +249,11 @@ def shp_to_tif(
     if gdf.empty:
         raise ValueError(f"No valid height features found in {shp_path}")
 
-    minx, miny, maxx, maxy = gdf.total_bounds
+    normalized_bounds = _normalize_bounds(bounds)
+    if normalized_bounds is None:
+        minx, miny, maxx, maxy = gdf.total_bounds
+    else:
+        minx, miny, maxx, maxy = normalized_bounds
     width = max(1, int(math.ceil((maxx - minx) / resolution)))
     height = max(1, int(math.ceil((maxy - miny) / resolution)))
     transform = from_origin(minx, maxy, resolution, resolution)
@@ -299,11 +317,12 @@ def shp_to_inx(
     resolution: float = DEFAULT_RESOLUTION,
     height_column: str = DEFAULT_HEIGHT_COLUMN,
     building_scale: float = DEFAULT_BUILDING_SCALE,
+    bounds: tuple[float, float, float, float] | None = None,
     **_unused: Any,
 ) -> Path:
     with tempfile.TemporaryDirectory(prefix="shp_to_inx_") as temp_dir:
         temp_tif = Path(temp_dir) / "from_shp.tif"
-        shp_to_tif(shp_path, temp_tif, resolution=resolution, height_column=height_column)
+        shp_to_tif(shp_path, temp_tif, resolution=resolution, height_column=height_column, bounds=bounds)
         return tif_to_inx(temp_tif, output_inx, building_scale=building_scale)
 
 
@@ -332,7 +351,16 @@ def main() -> None:
     parser.add_argument("--height-column", default=DEFAULT_HEIGHT_COLUMN)
     parser.add_argument("--building-scale", type=float, default=DEFAULT_BUILDING_SCALE)
     parser.add_argument("--dz-base", type=float, default=1.0)
+    parser.add_argument("--xmin", type=float)
+    parser.add_argument("--ymin", type=float)
+    parser.add_argument("--xmax", type=float)
+    parser.add_argument("--ymax", type=float)
     args = parser.parse_args()
+
+    bounds_values = [args.xmin, args.ymin, args.xmax, args.ymax]
+    if any(value is not None for value in bounds_values) and not all(value is not None for value in bounds_values):
+        raise ValueError("xmin, ymin, xmax, ymax must all be provided together.")
+    bounds = tuple(float(value) for value in bounds_values) if all(value is not None for value in bounds_values) else None
 
     convert(
         args.input,
@@ -343,6 +371,7 @@ def main() -> None:
         height_column=str(args.height_column),
         building_scale=float(args.building_scale),
         dz_base=float(args.dz_base),
+        bounds=bounds,
     )
 
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .activity import activityHeatFlowIntensity
+from .anthropic import anthropicHeatFlowIntensity
 from .heatBalance import solveHeatBalance
 from .longwave import longWaveRadHeatIntensity
 from .shortwave import shortWaveRadHeatIntensity
@@ -32,7 +32,7 @@ RESULT_COLUMNS = [
 shortWaveRadDifference = shortWaveRadHeatIntensity
 longWaveRadDifference = longWaveRadHeatIntensity
 vaporDifference = vaporHeatFlowIntensity
-activityDifference = activityHeatFlowIntensity
+anthropicDifference = anthropicHeatFlowIntensity
 
 PARAMS_DIR = Path(__file__).resolve().parent / 'params'
 DEFAULT_LCZ = 'LCZ5'
@@ -126,12 +126,12 @@ def _runDailyCycle(climate:ClimateInfo, site:SiteInfo, settings:settingInfo):
         shortwave_heat = shortWaveRadHeatIntensity(hour, climate, site, settings)
         longwave_heat = longWaveRadHeatIntensity(hour, climate, site, settings)
         vapor_heat = vaporHeatFlowIntensity(hour, climate, site, settings)
-        activity_heat = activityHeatFlowIntensity(hour, climate, site, settings)
+        anthropic_heat = anthropicHeatFlowIntensity(hour, climate, site, settings)
         surface_heat_flux = {
             name: float(shortwave_heat[name]) + float(longwave_heat[name])
             for name in ('ground', 'land', 'water')
         }
-        air_heat_flux = float(vapor_heat) + float(activity_heat)
+        air_heat_flux = float(vapor_heat) + float(anthropic_heat)
         heat_balance_result = solveHeatBalance(
             hour,
             surface_heat_flux,
@@ -145,7 +145,7 @@ def _runDailyCycle(climate:ClimateInfo, site:SiteInfo, settings:settingInfo):
         result['QS'][hour] = weighted(shortwave_heat, site.areaFractions)
         result['QL'][hour] = weighted(longwave_heat, site.areaFractions)
         result['QV'][hour] = vapor_heat
-        result['QA'][hour] = activity_heat
+        result['QA'][hour] = anthropic_heat
         result['Tair'][hour] = weighted(heat_balance_result['Ta'], site.areaFractions)
         result['Tsurface'][hour] = weighted(heat_balance_result['Tg'], site.areaFractions)
         result['Tambient'][hour] = climate.Tb[hour]

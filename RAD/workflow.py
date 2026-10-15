@@ -200,7 +200,7 @@ def _candidate_scene_meshes(mesh, meshes, samples: list[dict[str, np.ndarray | f
 
 
 def _compute_building_radiation(mesh, meshes, hourly_patch_kwh_m2: np.ndarray, sky_vectors: np.ndarray, floor_height: float) -> dict[str, np.ndarray]:
-    """Compute yearly directional radiation for one building with one MoosasRad call."""
+    """Compute yearly directional radiation intensity for one building with one MoosasRad call."""
     area_by_orientation = _facade_area_by_orientation(mesh)
     samples_by_orientation = _build_facade_samples(mesh, floor_height=floor_height)
     roof_height = float(np.max(mesh.heights))
@@ -268,9 +268,32 @@ def _compute_building_radiation(mesh, meshes, hourly_patch_kwh_m2: np.ndarray, s
             axis=0,
             weights=np.array(sample_weights, dtype=float),
         )
-        result[str(spec["key"])] = np.maximum(0.0, mean_hourly_kwh_m2 * float(spec["area_m2"]) * 1000.0)
+        result[str(spec["key"])] = np.maximum(0.0, mean_hourly_kwh_m2 * 1000.0)
         sample_offset += sample_count
     return result
+
+
+def _surface_areas_by_key(mesh) -> dict[str, float]:
+    """Return directional surface areas used by the radiation workflow."""
+    area_by_orientation = _facade_area_by_orientation(mesh)
+    return {
+        "N": float(area_by_orientation["N"]),
+        "S": float(area_by_orientation["S"]),
+        "W": float(area_by_orientation["W"]),
+        "E": float(area_by_orientation["E"]),
+        "T": float(mesh.area_m2),
+    }
+
+
+def _surface_areas_from_gdf(gdf, id_field: str, height_field: str) -> dict[str, np.ndarray]:
+    """Return directional surface areas for each building row in the shapefile."""
+    meshes = load_building_meshes(gdf, id_field, height_field)
+    areas = {key: np.zeros(len(meshes), dtype=float) for key in CARDINAL_KEYS}
+    for mesh_index, mesh in enumerate(meshes):
+        surface_areas = _surface_areas_by_key(mesh)
+        for key in CARDINAL_KEYS:
+            areas[key][mesh_index] = float(surface_areas[key])
+    return areas
 
 
 def _initialize_result_arrays(building_count: int, hour_count: int) -> dict[str, np.ndarray]:
@@ -314,17 +337,10 @@ def _idw_interpolate_buildings(
     sample_mask[sample_indices] = True
     target_indices = np.flatnonzero(~sample_mask)
     sample_centroids = np.vstack([np.asarray(meshes[index].centroid_xy, dtype=float) for index in sample_indices])
-
     for target_index in target_indices.tolist():
         target_centroid = np.asarray(meshes[target_index].centroid_xy, dtype=float)
         deltas = sample_centroids - target_centroid
         distance_squared = np.sum(deltas * deltas, axis=1)
-        nearest_index = int(np.argmin(distance_squared))
-        if float(distance_squared[nearest_index]) <= float(distance_epsilon):
-            source_index = int(sample_indices[nearest_index])
-            for key in CARDINAL_KEYS:
-                result_arrays[key][target_index] = result_arrays[key][source_index]
-            continue
 
         weights = 1.0 / np.maximum(distance_squared, float(distance_epsilon))
         weights = weights / np.sum(weights)
@@ -369,10 +385,52 @@ def compute_building_radiation(
 
     result_arrays["index"] = gdf[id_field].to_numpy(dtype=str)
     result_arrays["shp_index"] = gdf.index.to_numpy(dtype=int)
+    result_arrays["radiation_unit"] = np.array("Wh/m2")
     RADIATION_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     output_path = RADIATION_OUTPUT_DIR / f"{_shp_stem(shp_path)}_rad.npz"
     np.savez_compressed(output_path, **result_arrays)
     return output_path
+
+
+def read_radiation_intensities(rad_path: str | Path, gdf, *, id_field: str = "index",
+                               height_field: str = "height") -> dict[str, np.ndarray]:
+    """Read hourly Wh/m2 in SHP order, including legacy directional Wh totals."""
+    with np.load(rad_path, allow_pickle=False) as data:
+        missing = [key for key in CARDINAL_KEYS if key not in data.files]
+        if missing:
+            raise KeyError(f"Missing radiation keys in {rad_path}: {missing}")
+        order = np.arange(len(gdf))
+        if "index" in data.files:
+            ids = np.asarray(data["index"]).astype(str)
+            expected = gdf[id_field].astype(str).tolist()
+            if ids.shape != (len(gdf),) or len(set(ids)) != len(ids) or len(set(expected)) != len(expected) or set(ids) != set(expected):
+                raise ValueError("RAD building IDs do not match the shapefile uniquely.")
+            lookup = {value: index for index, value in enumerate(ids)}
+            order = np.array([lookup[value] for value in expected])
+        elif "shp_index" in data.files:
+            ids = np.asarray(data["shp_index"])
+            expected = gdf.index.tolist()
+            if ids.shape != (len(gdf),) or len(set(ids)) != len(ids) or set(ids) != set(expected):
+                raise ValueError("RAD shapefile indices do not match the buildings.")
+            lookup = {value: index for index, value in enumerate(ids)}
+            order = np.array([lookup[value] for value in expected])
+        # Legacy files without IDs retain the original SHP row-order convention.
+        result = {}
+        for key in CARDINAL_KEYS:
+            values = np.asarray(data[key], dtype=float)
+            if values.shape != (len(gdf), 8760):
+                raise ValueError(f"Unexpected array shape for '{key}': {values.shape}")
+            if not np.all(np.isfinite(values)) or np.any(values < 0):
+                raise ValueError(f"Invalid radiation values for '{key}'.")
+            result[key] = values[order]
+        unit = str(data["radiation_unit"].item()) if "radiation_unit" in data.files else ""
+    if unit not in {"Wh/m2", "Wh", ""}:
+        raise ValueError(f"Unsupported radiation unit: {unit}")
+    if unit != "Wh/m2":
+        areas = _surface_areas_from_gdf(gdf, id_field, height_field)
+        result = {key: values / np.maximum(areas[key][:, None], 1e-6)
+                  for key, values in result.items()}
+    return result
 
 
 def write_radiation_schedules(
@@ -402,31 +460,27 @@ def write_radiation_schedules(
             raise ValueError("start_hoy and end_hoy must be provided together.")
         actual_start, actual_end = _normalize_hoy_window(start_hoy, end_hoy)
         hourly_indices = list(range(actual_start, actual_end))
-    rad_data = np.load(rad_path, allow_pickle=False)
     wwr_values = _normalize_wwr_values(wwr, len(gdf))
     floor_height_values = _normalize_floor_height_values(floor_height, len(gdf))
-
-    missing = [key for key in CARDINAL_KEYS if key not in rad_data.files]
-    if missing:
-        raise KeyError(f"Missing radiation keys in {rad_path}: {missing}")
-
-    for key in CARDINAL_KEYS:
-        if rad_data[key].shape != (len(gdf), 8760):
-            raise ValueError(f"Unexpected array shape for '{key}': {rad_data[key].shape}")
+    intensities = read_radiation_intensities(rad_path, gdf, id_field=id_field, height_field=height_field)
+    directional_intensity_wh_m2 = {key: values[:, hourly_indices] for key, values in intensities.items()}
+    surface_areas = _surface_areas_from_gdf(gdf, id_field, height_field)
 
     output_dir = RADIATION_OUTPUT_DIR / _shp_stem(shp_path)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    summed_facade_wh = (
-        rad_data["N"][:, hourly_indices]
-        + rad_data["S"][:, hourly_indices]
-        + rad_data["W"][:, hourly_indices]
-        + rad_data["E"][:, hourly_indices]
-    )
+    facade_area_n = surface_areas["N"].reshape((-1, 1))
+    facade_area_s = surface_areas["S"].reshape((-1, 1))
+    facade_area_w = surface_areas["W"].reshape((-1, 1))
+    facade_area_e = surface_areas["E"].reshape((-1, 1))
+    facade_area = np.maximum(facade_area_n + facade_area_s + facade_area_w + facade_area_e, 1e-6)
+    facade_intensity_wh_m2 = (
+        directional_intensity_wh_m2["N"] * facade_area_n
+        + directional_intensity_wh_m2["S"] * facade_area_s
+        + directional_intensity_wh_m2["W"] * facade_area_w
+        + directional_intensity_wh_m2["E"] * facade_area_e
+    ) / facade_area
     perimeters = gdf.geometry.length.to_numpy(dtype=float).reshape((-1, 1))
-    heights = gdf[height_field].to_numpy(dtype=float).reshape((-1, 1))
-    facade_area = np.maximum(perimeters * heights, 1e-6)
-    facade_intensity_wh_m2 = summed_facade_wh / facade_area
     standard_floor_window_area = perimeters * floor_height_values.reshape((-1, 1)) * wwr_values.reshape((-1, 1))
     schedule_values = facade_intensity_wh_m2 * standard_floor_window_area * float(shgc)
 

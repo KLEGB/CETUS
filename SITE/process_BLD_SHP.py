@@ -14,9 +14,9 @@ import numpy as np
 import pandas as pd
 import rasterio
 import shapely
-from shapely.strtree import STRtree
 from pyproj import CRS, Transformer
 from rasterio.transform import from_origin
+from shapely.strtree import STRtree
 
 
 @dataclass(frozen=True)
@@ -32,9 +32,6 @@ class Mesh:
 
 
 def _unit(v: np.ndarray) -> np.ndarray:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     norm = float(np.linalg.norm(v))
     if norm == 0.0:
         return v
@@ -42,18 +39,7 @@ def _unit(v: np.ndarray) -> np.ndarray:
 
 
 def _loadSkyVectors() -> list[np.ndarray]:
-    """
-    Load input data required by the model workflow.
-    """
-    cetus_root = Path(__file__).resolve().parents[1]
-    candidates = [
-        cetus_root / "RAD" / "data" / "sun_position.csv",
-        cetus_root / "UHI" / "sky_vector.csv",
-        Path(__file__).resolve().parents[2] / "UHI" / "sky_vector.csv",
-    ]
-    sky_path = next((path for path in candidates if path.exists()), None)
-    if sky_path is None:
-        raise FileNotFoundError("No sky-vector CSV found in CETUS RAD/data or UHI resources.")
+    sky_path = Path(__file__).resolve().parents[1] / "UHI" / "sky_vector.csv"
     vectors = pd.read_csv(sky_path).to_numpy(dtype=float)
     return [_unit(v) for v in vectors]
 
@@ -67,9 +53,6 @@ _SVF_WORKER_STATE: dict[str, object] = {}
 
 
 def _isUtmCrs(crs: CRS | None) -> bool:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     if crs is None:
         return False
     try:
@@ -79,38 +62,21 @@ def _isUtmCrs(crs: CRS | None) -> bool:
 
 
 def _looksLikeLonlatBounds(bounds: tuple[float, float, float, float]) -> bool:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     xmin, ymin, xmax, ymax = bounds
-    return (
-        -180.0 <= xmin <= 180.0
-        and -180.0 <= xmax <= 180.0
-        and -90.0 <= ymin <= 90.0
-        and -90.0 <= ymax <= 90.0
-    )
+    return -180.0 <= xmin <= 180.0 and -180.0 <= xmax <= 180.0 and -90.0 <= ymin <= 90.0 and -90.0 <= ymax <= 90.0
 
 
 def _looksLikeLonlatPoint(lat: float, lon: float) -> bool:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     return -180.0 <= lon <= 180.0 and -90.0 <= lat <= 90.0
 
 
 def _utmEpsgForLonlat(lon: float, lat: float) -> int:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     zone = int(math.floor((lon + 180.0) / 6.0) + 1)
     zone = max(1, min(zone, 60))
     return 32600 + zone if lat >= 0 else 32700 + zone
 
 
 def _chooseTargetUtm(shp: gpd.GeoDataFrame, bounds: tuple[float, float, float, float] | None = None) -> CRS:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     if bounds and _looksLikeLonlatBounds(bounds):
         lon = (bounds[0] + bounds[2]) * 0.5
         lat = (bounds[1] + bounds[3]) * 0.5
@@ -129,9 +95,6 @@ def _chooseTargetUtm(shp: gpd.GeoDataFrame, bounds: tuple[float, float, float, f
 
 
 def _normalizeBounds(bounds: tuple[float, float, float, float] | None) -> tuple[float, float, float, float] | None:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     if bounds is None:
         return None
     xmin, xmax, ymin, ymax = bounds
@@ -141,9 +104,6 @@ def _normalizeBounds(bounds: tuple[float, float, float, float] | None) -> tuple[
 
 
 def _resolveTargetCrsForPoint(shp: gpd.GeoDataFrame, lat: float, lon: float) -> CRS:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     if shp.crs is None:
         raise ValueError("Shapefile CRS is missing.")
     src_crs = CRS.from_user_input(shp.crs)
@@ -155,9 +115,6 @@ def _resolveTargetCrsForPoint(shp: gpd.GeoDataFrame, lat: float, lon: float) -> 
 
 
 def _pointToTargetUtm(lat: float, lon: float, target_crs: CRS) -> tuple[float, float]:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     if _looksLikeLonlatPoint(lat, lon):
         transformer = Transformer.from_crs(4326, target_crs, always_xy=True)
         x, y = transformer.transform(lon, lat)
@@ -166,9 +123,6 @@ def _pointToTargetUtm(lat: float, lon: float, target_crs: CRS) -> tuple[float, f
 
 
 def _pointToWgs84(lat: float, lon: float, source_crs: CRS) -> tuple[float, float]:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     if _looksLikeLonlatPoint(lat, lon):
         return float(lat), float(lon)
     transformer = Transformer.from_crs(source_crs, 4326, always_xy=True)
@@ -176,13 +130,7 @@ def _pointToWgs84(lat: float, lon: float, source_crs: CRS) -> tuple[float, float
     return float(out_lat), float(out_lon)
 
 
-def _toTargetUtm(
-    shp: gpd.GeoDataFrame,
-    bounds: tuple[float, float, float, float] | None,
-) -> tuple[gpd.GeoDataFrame, tuple[float, float, float, float], CRS, dict[str, str | int]]:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
+def _toTargetUtm(shp: gpd.GeoDataFrame, bounds: tuple[float, float, float, float] | None) -> tuple[gpd.GeoDataFrame, tuple[float, float, float, float], CRS, dict[str, str | int]]:
     requested = _normalizeBounds(bounds)
     if shp.crs is None:
         if requested is not None and _looksLikeLonlatBounds(requested):
@@ -228,9 +176,6 @@ def _toTargetUtm(
 
 
 def _explodePolygons(geometry: shapely.Geometry) -> list[shapely.Polygon]:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     if geometry is None or geometry.is_empty:
         return []
     if geometry.geom_type == "Polygon":
@@ -245,9 +190,6 @@ def _explodePolygons(geometry: shapely.Geometry) -> list[shapely.Polygon]:
 
 
 def _polygonMeshes(geometry: shapely.Geometry, height: float) -> list[Mesh]:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     meshes: list[Mesh] = []
     for polygon in _explodePolygons(geometry):
         coords = np.asarray(polygon.exterior.coords, dtype=float)
@@ -261,9 +203,6 @@ def _polygonMeshes(geometry: shapely.Geometry, height: float) -> list[Mesh]:
 
 
 def _intersectsSky(ray: Vector, mesh: Mesh, ray_length: float) -> bool:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     horizontal = float(ray.direction[0] ** 2 + ray.direction[1] ** 2)
     if horizontal == 0.0:
         return False
@@ -288,31 +227,7 @@ def _intersectsSky(ray: Vector, mesh: Mesh, ray_length: float) -> bool:
     return (mesh.height * mesh.height / dist2) > (ray.direction[2] ** 2 / horizontal)
 
 
-def _cellSvf(x: float, y: float, meshes: list[Mesh], *, ray_length: float) -> float:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
-    if not meshes:
-        return 1.0
-
-    origin = np.array([x, y, 0.0], dtype=float)
-    valid = 0
-    for direction in SKY_VECTORS:
-        ray = Vector(origin=origin, direction=direction)
-        blocked = False
-        for mesh in meshes:
-            if _intersectsSky(ray, mesh, ray_length):
-                blocked = True
-                break
-        if not blocked:
-            valid += 1
-    return valid / max(len(SKY_VECTORS), 1)
-
-
 def _cellSvfWithTree(x: float, y: float, edge_tree: STRtree, edge_heights: np.ndarray, *, ray_length: float) -> float:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     origin = np.array([x, y, 0.0], dtype=float)
     valid = 0
     for direction in SKY_VECTORS:
@@ -336,9 +251,6 @@ def _cellSvfWithTree(x: float, y: float, edge_tree: STRtree, edge_heights: np.nd
 
 
 def _averageWithBuffer(array: np.ndarray, resolution: float, buff: float) -> np.ndarray:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     effective_buff = max(float(buff), float(resolution))
     radius_cells = int(math.ceil(effective_buff / resolution))
     offsets: list[tuple[int, int]] = []
@@ -368,9 +280,6 @@ def _averageWithBuffer(array: np.ndarray, resolution: float, buff: float) -> np.
 
 
 def _bufferOffsets(resolution: float, buff: float) -> list[tuple[int, int]]:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     effective_buff = max(float(buff), float(resolution))
     radius_cells = int(math.ceil(effective_buff / resolution))
     offsets: list[tuple[int, int]] = []
@@ -383,9 +292,6 @@ def _bufferOffsets(resolution: float, buff: float) -> list[tuple[int, int]]:
 
 
 def _meanAtPoint(array: np.ndarray, point_x: float, point_y: float, xmin: float, ymin: float, resolution: float, buff: float) -> float:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     height, width = array.shape
     col = int(math.floor((point_x - xmin) / resolution))
     row = int(math.floor((point_y - ymin) / resolution))
@@ -404,16 +310,7 @@ def _meanAtPoint(array: np.ndarray, point_x: float, point_y: float, xmin: float,
     return float(np.mean(values))
 
 
-def _initSvfWorker(
-    x_centers: np.ndarray,
-    height: int,
-    svf_search_radius: float,
-    edge_geometries: list[shapely.Geometry],
-    edge_heights: np.ndarray,
-) -> None:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
+def _initSvfWorker(x_centers: np.ndarray, height: int, svf_search_radius: float, edge_geometries: list[shapely.Geometry], edge_heights: np.ndarray) -> None:
     global _SVF_WORKER_STATE
     _SVF_WORKER_STATE = {
         "x_centers": x_centers,
@@ -425,9 +322,6 @@ def _initSvfWorker(
 
 
 def _computeSvfRow(task: tuple[int, float]) -> tuple[int, np.ndarray]:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     row_idx, y = task
     x_centers: np.ndarray = _SVF_WORKER_STATE["x_centers"]  # type: ignore[assignment]
     height: int = int(_SVF_WORKER_STATE["height"])
@@ -437,16 +331,11 @@ def _computeSvfRow(task: tuple[int, float]) -> tuple[int, np.ndarray]:
 
     row_values = np.ones(len(x_centers), dtype=np.float32)
     for col_idx, x in enumerate(x_centers):
-        row_values[col_idx] = float(
-            _cellSvfWithTree(x, y, edge_tree, edge_heights, ray_length=svf_search_radius)
-        )
+        row_values[col_idx] = float(_cellSvfWithTree(x, y, edge_tree, edge_heights, ray_length=svf_search_radius))
     return height - 1 - row_idx, row_values
 
 
 def _prepareFeatures(shp: gpd.GeoDataFrame, height_column: str) -> gpd.GeoDataFrame:
-    """
-    Build normalized inputs for the model workflow.
-    """
     if height_column not in shp.columns:
         raise KeyError(f"Height column '{height_column}' was not found in shapefile.")
 
@@ -459,17 +348,11 @@ def _prepareFeatures(shp: gpd.GeoDataFrame, height_column: str) -> gpd.GeoDataFr
     data["footprint_area"] = data.geometry.area.astype(float)
     data["facade_area"] = data.geometry.length.astype(float) * np.minimum(data[height_column].astype(float), 18.0)
     data["far_area"] = data["footprint_area"] * data[height_column].astype(float)
-    data["meshes"] = [
-        _polygonMeshes(geometry, float(height))
-        for geometry, height in zip(data.geometry, data[height_column])
-    ]
+    data["meshes"] = [_polygonMeshes(geometry, float(height)) for geometry, height in zip(data.geometry, data[height_column])]
     return data
 
 
 def _bboxProjectedLength(x_span: float, y_span: float, wind_direction_deg: float) -> float:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     theta = math.radians(float(wind_direction_deg))
     wind_vec_x = math.sin(theta)
     wind_vec_y = math.cos(theta)
@@ -479,17 +362,11 @@ def _bboxProjectedLength(x_span: float, y_span: float, wind_direction_deg: float
 
 
 def _addVentilationBlockageTerms(data: gpd.GeoDataFrame, wind_direction_deg: float) -> gpd.GeoDataFrame:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
     bounds = data.geometry.bounds
     x_span = (bounds["maxx"] - bounds["minx"]).astype(float)
     y_span = (bounds["maxy"] - bounds["miny"]).astype(float)
     diagonal = np.hypot(x_span, y_span)
-    projected = np.array(
-        [_bboxProjectedLength(dx, dy, wind_direction_deg) for dx, dy in zip(x_span, y_span)],
-        dtype=np.float32,
-    )
+    projected = np.array([_bboxProjectedLength(dx, dy, wind_direction_deg) for dx, dy in zip(x_span, y_span)], dtype=np.float32)
     with np.errstate(divide="ignore", invalid="ignore"):
         f_yf = np.where(diagonal > 0.0, projected / diagonal, 0.0).astype(np.float32)
     enriched = data.copy()
@@ -498,17 +375,7 @@ def _addVentilationBlockageTerms(data: gpd.GeoDataFrame, wind_direction_deg: flo
     return enriched
 
 
-def _buildGroupIndex(
-    data: gpd.GeoDataFrame,
-    xmin: float,
-    ymin: float,
-    resolution: float,
-    width: int,
-    height: int,
-) -> dict[tuple[int, int], list[int]]:
-    """
-    Build normalized inputs for the model workflow.
-    """
+def _buildGroupIndex(data: gpd.GeoDataFrame, xmin: float, ymin: float, resolution: float, width: int, height: int) -> dict[tuple[int, int], list[int]]:
     groups: dict[tuple[int, int], list[int]] = {}
     for idx, row in enumerate(data.itertuples(index=False)):
         col = int(math.floor((float(row.centroid_x) - xmin) / resolution))
@@ -518,15 +385,7 @@ def _buildGroupIndex(
     return groups
 
 
-def _cellFeatureIndices(
-    groups: dict[tuple[int, int], list[int]],
-    col: int,
-    row: int,
-    resolution: float,
-) -> list[int]:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
+def _cellFeatureIndices(groups: dict[tuple[int, int], list[int]], col: int, row: int, resolution: float) -> list[int]:
     indices = list(groups.get((col, row), []))
     if resolution < 100.0:
         for dcol, drow in ((-1, 0), (1, 0), (0, -1), (0, 1)):
@@ -535,9 +394,6 @@ def _cellFeatureIndices(
 
 
 def _writeTif(path: Path, array: np.ndarray, transform, crs: CRS) -> None:
-    """
-    Write calculated model outputs to disk.
-    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with rasterio.open(
         path,
@@ -554,19 +410,7 @@ def _writeTif(path: Path, array: np.ndarray, transform, crs: CRS) -> None:
         dst.write(array.astype(np.float32), 1)
 
 
-def _computeBaseGrids(
-    prepared: gpd.GeoDataFrame,
-    xmin: float,
-    ymin: float,
-    xmax: float,
-    ymax: float,
-    resolution: float,
-    svf_search_radius: float,
-    workers: int,
-) -> tuple[dict[str, np.ndarray], dict[str, object]]:
-    """
-    Helper function used by the UHI calculation workflow.
-    """
+def _computeBaseGrids(prepared: gpd.GeoDataFrame, xmin: float, ymin: float, xmax: float, ymax: float, resolution: float, svf_search_radius: float, workers: int) -> tuple[dict[str, np.ndarray], dict[str, object]]:
     width = max(1, int(math.ceil((xmax - xmin) / resolution)))
     height = max(1, int(math.ceil((ymax - ymin) / resolution)))
     x_centers = xmin + (np.arange(width, dtype=float) + 0.5) * resolution
@@ -617,21 +461,13 @@ def _computeBaseGrids(
                 if done == 1 or done % 10 == 0 or done == len(tasks):
                     print(f"Computing SVF rows: {done}/{len(tasks)}")
 
-    return (
-        {
-            "BuildingAreaRatio": building_ratio,
-            "facaAreaRatio": facade_ratio,
-            "FAR": far_ratio,
-            "kS": ks_ratio,
-            "SVF": svf,
-        },
-        {
-            "width": width,
-            "height": height,
-            "x_centers": x_centers,
-            "y_centers": y_centers,
-        },
-    )
+    return {
+        "BuildingAreaRatio": building_ratio,
+        "facaAreaRatio": facade_ratio,
+        "FAR": far_ratio,
+        "kS": ks_ratio,
+        "SVF": svf,
+    }, {"width": width, "height": height, "x_centers": x_centers, "y_centers": y_centers}
 
 
 def processBuildingShp(
@@ -646,9 +482,6 @@ def processBuildingShp(
     workers: int = DEFAULT_WORKERS,
     wind_direction: float = DEFAULT_WIND_DIRECTION_DEG,
 ) -> dict[str, object]:
-    """
-    Process source data into model-ready outputs.
-    """
     shp_path = Path(shp_path)
     output_dir = Path(output_dir)
     if resolution <= 0:
@@ -704,13 +537,6 @@ def processBuildingShp(
         "bounds_utm": {"xmin": xmin, "ymin": ymin, "xmax": xmax, "ymax": ymax},
         **projection_meta,
         "outputs": list(outputs.keys()),
-        "metrics": {
-            "SVF": "Step 1: compute point SVF with buildings within svf_search_radius_m using the original ray-blocking logic. Step 2: average by buff_m_effective.",
-            "facaAreaRatio": "Step 1: sum(geometry.length * min(height, 18m)) / cell_area. Step 2: average by buff_m_effective.",
-            "BuildingAreaRatio": "Step 1: sum(geometry.area) / cell_area. Step 2: average by buff_m_effective.",
-            "FAR": "Step 1: sum(geometry.area * height) / cell_area. Step 2: average by buff_m_effective.",
-            "kS": "Step 1: sum(geometry.area * F_yf) / cell_area, where F_yf = bbox projected frontal length / bbox diagonal length under wind_direction_deg_from_north_clockwise. Step 2: average by buff_m_effective.",
-        },
     }
     (output_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest
@@ -728,9 +554,6 @@ def queryPointMetrics(
     workers: int = DEFAULT_WORKERS,
     wind_direction: float = DEFAULT_WIND_DIRECTION_DEG,
 ) -> dict[str, float | str]:
-    """
-    Query calculated preprocessing metrics at a target location.
-    """
     if resolution <= 0:
         raise ValueError("Resolution must be > 0.")
     if buff <= 0:
@@ -751,7 +574,7 @@ def queryPointMetrics(
     base_grids, _grid_meta = _computeBaseGrids(prepared, xmin, ymin, xmax, ymax, resolution, svf_search_radius, workers)
     point_lat, point_lon = _pointToWgs84(lat, lon, target_crs)
 
-    result: dict[str, float | str] = {
+    return {
         "lat": point_lat,
         "lon": point_lon,
         "resolution_m": float(resolution),
@@ -766,38 +589,24 @@ def queryPointMetrics(
         "FAR": _meanAtPoint(base_grids["FAR"], point_x, point_y, xmin, ymin, resolution, effective_buff),
         "kS": _meanAtPoint(base_grids["kS"], point_x, point_y, xmin, ymin, resolution, effective_buff),
     }
-    return result
 
 
 def main() -> None:
-    """
-    Run the command-line entrypoint.
-    """
     parser = argparse.ArgumentParser(description="Generate SVF / facaAreaRatio / BuildingAreaRatio / FAR tif files from a building footprint shapefile.")
-    parser.add_argument("--input", required=True, help="Input building shapefile path.")
-    parser.add_argument("--output-dir", help="Directory for output tif files. Required for area mode.")
-    parser.add_argument("--resolution", required=True, type=float, help="Output tif resolution in meters.")
-    parser.add_argument("--height-column", default="height", help="Height column name. Default: height.")
-    parser.add_argument("--lat", type=float, help="Point latitude or projected Y coordinate for point mode.")
-    parser.add_argument("--lon", type=float, help="Point longitude or projected X coordinate for point mode.")
-    parser.add_argument("--xmin", type=float, help="Optional xmin. Must be provided together with xmax/ymin/ymax.")
-    parser.add_argument("--xmax", type=float, help="Optional xmax. Must be provided together with xmin/ymin/ymax.")
-    parser.add_argument("--ymin", type=float, help="Optional ymin. Must be provided together with xmin/xmax/ymax.")
-    parser.add_argument("--ymax", type=float, help="Optional ymax. Must be provided together with xmin/xmax/ymin.")
-    parser.add_argument("--buff", type=float, default=DEFAULT_BUFF_M, help="Buffer radius in meters for step-2 averaging. Default: 500.")
-    parser.add_argument(
-        "--svf-search-radius",
-        type=float,
-        default=DEFAULT_SVF_SEARCH_RADIUS_M,
-        help="Building search radius in meters for step-1 SVF obstruction calculation. Default: 200.",
-    )
-    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS, help=f"Worker count for SVF calculation. Default: {DEFAULT_WORKERS}.")
-    parser.add_argument(
-        "--wind-direction",
-        type=float,
-        default=DEFAULT_WIND_DIRECTION_DEG,
-        help="Dominant wind direction in degrees, using north=0 and clockwise positive. Default: 0.",
-    )
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--output-dir")
+    parser.add_argument("--resolution", required=True, type=float)
+    parser.add_argument("--height-column", default="height")
+    parser.add_argument("--lat", type=float)
+    parser.add_argument("--lon", type=float)
+    parser.add_argument("--xmin", type=float)
+    parser.add_argument("--xmax", type=float)
+    parser.add_argument("--ymin", type=float)
+    parser.add_argument("--ymax", type=float)
+    parser.add_argument("--buff", type=float, default=DEFAULT_BUFF_M)
+    parser.add_argument("--svf-search-radius", type=float, default=DEFAULT_SVF_SEARCH_RADIUS_M)
+    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
+    parser.add_argument("--wind-direction", type=float, default=DEFAULT_WIND_DIRECTION_DEG)
     args = parser.parse_args()
 
     bounds_values = [args.xmin, args.xmax, args.ymin, args.ymax]
@@ -840,10 +649,9 @@ def main() -> None:
     print(json.dumps(manifest, ensure_ascii=False, indent=2))
 
 
-
-# Backward-compatible aliases for older imports.
 process_building_shp = processBuildingShp
 query_point_metrics = queryPointMetrics
+
 
 if __name__ == "__main__":
     main()

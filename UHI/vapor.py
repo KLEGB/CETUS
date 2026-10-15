@@ -14,44 +14,42 @@ def vaporHeatFlowIntensity(t, climate: ClimateInfo, site: SiteInfo,setting:setti
     :param t: current time
     :return: The vapor heat flow intensity (W/m2) to the AIR in specific daytime t
     """
-    vaporDiffLand = vaporPressureDeficit(climate.Ta[t-1], climate.Rh[t], climate.Tg_split['land'][t-1])
-    vaporLandscape = evaporationRate(vaporDiffLand,climate.QS['land'][t-1],climate.Ta[t-1],climate.Pressure[t],
+    vaporDiffLand = vaporPressureDeficit(climate.Ta[t], climate.Rh[t], climate.Tg_split['land'][t-1])
+    vaporLandscape = evaporationRate(vaporDiffLand,climate.QS['land'][t-1],climate.Ta[t],climate.Pressure[t],
                                      referenceVelocity(climate.Velocity[t], site.kS, setting.a, setting.k), 
-                                     setting.rsveg,setting.zRef, setting.z0)
-    vaporDiffWater = vaporPressureDeficit(climate.Ta[t-1], climate.Rh[t], climate.Tg_split['water'][t-1])
-    vaporWater = evaporationRate(vaporDiffWater,climate.QS['water'][t-1],climate.Ta[t-1],climate.Pressure[t],
+                                     setting.rsveg,setting.zRef, setting.z0)*evaporationavalibility(t, setting.gWUEffday, setting.gWUEffnight)
+    vaporDiffWater = vaporPressureDeficit(climate.Ta[t], climate.Rh[t], climate.Tg_split['water'][t-1])
+    vaporWater = evaporationRate(vaporDiffWater,climate.QS['water'][t-1],climate.Ta[t],climate.Pressure[t],
                                      referenceVelocity(climate.Velocity[t], site.kS, setting.a, setting.k), 
-                                     0.0,setting.zRef, setting.z0)
-    vaporDiffGround = vaporPressureDeficit(climate.Ta[t-1], climate.Rh[t], climate.Tg_split['ground'][t-1])
-    vaporGround = evaporationRate(vaporDiffGround,climate.QS['ground'][t-1],climate.Ta[t-1],climate.Pressure[t],
+                                     0.0,setting.zRef, setting.z0)*evaporationavalibility(t, setting.gWUEffday, setting.gWUEffnight)
+    vaporDiffGround = vaporPressureDeficit(climate.Ta[t], climate.Rh[t], climate.Tg_split['ground'][t-1])
+    vaporGround = evaporationRate(vaporDiffGround,climate.QS['ground'][t-1],climate.Ta[t],climate.Pressure[t],
                                      referenceVelocity(climate.Velocity[t], site.kS, setting.a, setting.k), 
-                                     setting.rsground,setting.zRef, setting.z0)
+                                     setting.rsground,setting.zRef, setting.z0)*evaporationavalibility(t, setting.gWUEffday, setting.gWUEffnight)
     
     vaporRoof = vaporLandscape * setting.gRVEff
 
-    # rat = latenEvaporationFixRatio(climate.Ta[t-1], climate.Rh[t-1], climate.Velocity[t], site.kS, setting.a, setting.k,setting.aw,setting.bw,setting.baseLETa,setting.baseLERH,setting.baseLEVelocity)
-    # vaporLandscape = rat * site.vaporLandscape[t]
-    # vaporWater = rat * site.vaporWater[t]
-    # vaporGround = rat * site.vaporGround[t]
-    # vaporRoof = rat * site.vaporRoof[t]
-
-    # heatFlowIntensity= (climate.Ta[t-1],
-    #                                site.AreaWater, site.AreaBuilding, site.AreaLandscape, site.AreaGround+site.AreaRoad,
-    #                                site.vaporWater[t],site.vaporLandscape[t],site.vaporGround[t],site.vaporRoof[t],
-    #                                site.greenRoofPercentage,site.groundInfiltratePercentage
-    #                                )
-    # print(t,vaporLandscape, vaporWater, vaporGround)
     IlatT = (site.AreaLandscape * vaporLandscape 
              + site.AreaWater * vaporWater
-             + setting.gInff * site.AreaGround * vaporGround
-            #  + setting.gInff * site.AreaBuilding * vaporGround
-             + site.greenRoofPercentage * site.AreaBuilding * vaporRoof)/ (site.AreaWater + site.AreaBuilding + site.AreaLandscape + site.AreaGround)
-    # IlatT *= latentHeat(climate.Ta[t-1]) / 3.6
-    # print(IlatT)
-    climate.QV['ground'][t] = -vaporGround
+             + setting.gInff * (site.AreaGround + site.AreaRoad )* vaporGround
+             + site.greenRoofPercentage * site.AreaBuilding * vaporRoof)/ (site.TotalArea)
+
+    ground = setting.gInff * (site.AreaGround + site.AreaRoad) * vaporGround + site.greenRoofPercentage * site.AreaBuilding * vaporRoof
+    climate.QV['ground'][t] = -ground / (site.AreaBuilding + site.AreaGround + site.AreaRoad)
     climate.QV['land'][t] = -vaporLandscape
     climate.QV['water'][t] = -vaporWater
     return - IlatT
+
+def evaporationavalibility(t, gWUEffday, gWUEffnight):
+    """
+    Evaporation potential (W/m2) in specific daytime t, calculated by the Penman-Monteith equation (adjusted by FAO-56).
+    :param gWUEffday: effective water use efficiency in daytime
+    :param gWUEffnight: effective water use efficiency in nighttime
+    """
+    if 6 <= t < 18:
+        return gWUEffday
+    else:
+        return gWUEffnight
 
 def evaporationRate(VPD, Qs, TaTMD, PaTMD, VaReference, rs,zRef = 10, z0 = 0.2):
     """
@@ -70,9 +68,6 @@ def evaporationRate(VPD, Qs, TaTMD, PaTMD, VaReference, rs,zRef = 10, z0 = 0.2):
     ra = 1 / (VaReference * cH(zRef, z0))
     vaporStimulation = airDensity(PaTMD, TaTMD) * heatBalanceConstants['c_p'] * VPD / ra
     roughnessFactor =  1 + rs / ra
-    # print((energyStimulation , vaporStimulation))
-    # print(vapoorResponse(TaTMD), psychrometricConstant(PaTMD,TaTMD) , roughnessFactor)
-    # print(latentHeat(TaTMD))
     return (energyStimulation + vaporStimulation) / (vapoorResponse(TaTMD) + psychrometricConstant(PaTMD,TaTMD) * roughnessFactor)
 
 def vaporPressureDeficit(targetTa, RHaTMD, sourcesTa):
@@ -82,8 +77,6 @@ def vaporPressureDeficit(targetTa, RHaTMD, sourcesTa):
     :param RHaTMD: relative humidity in specific daytime t
     :param sourcesTa: source dry bulb temperature in specific daytime t
     """
-    # Tw = wetbulbTemperature(TaTMD, RHaTMD, PaTMD)
-    # vpd = saturationVaporPressure(TaTMD) - saturationVaporPressure(Tw)
     vpd = saturationVaporPressure(sourcesTa) - saturationVaporPressure(targetTa) * RHaTMD / 100 
     return max(vpd, 0)
 

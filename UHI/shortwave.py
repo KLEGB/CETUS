@@ -27,7 +27,8 @@ def shortWaveRadHeatIntensity(t, climate: ClimateInfo, site: SiteInfo, settings:
     absorbGround = ((settings.AbsoRoad * site.AreaRoad + settings.AbsoGround * site.AreaGround) / groundArea
                     if groundArea > 0 else 0.0)
 
-    CumulatedHeat = 0.0
+    CumulatedHeatGround = 0.0
+    CumulatedHeatBld = 0.0
     currentStep = warmupDays * 24 + t
 
     for i in range(currentStep):
@@ -43,19 +44,25 @@ def shortWaveRadHeatIntensity(t, climate: ClimateInfo, site: SiteInfo, settings:
             climate.RadTotal[lastHour], climate.RadDiffuse[lastHour], site.SVF, site.SDL, site.SDG,
             site.SRTL, site.SRTG, site.fPSA, site.CL, site.CG
         )
+        CumulatedHeatGround += expCTTC * (radiationNext - radiationLast)
+        CumulatedHeatBld += expCTTC * (solarRadiationBuilding(nextHour, climate) - solarRadiationBuilding(lastHour, climate))
 
-        CumulatedHeat += expCTTC * (radiationNext - radiationLast)
-        
-    climate.QS['ground'][t] = CumulatedHeat * absorbGround
-    climate.QS['land'][t] = CumulatedHeat * settings.AbsoLandscape
-    climate.QS['water'][t] = CumulatedHeat * settings.AbsoWater
+    climate.QS['ground'][t] = CumulatedHeatGround * absorbGround * groundArea + CumulatedHeatBld * settings.AbsoRoof * site.AreaBuilding
+    climate.QS['ground'][t] /= groundArea + site.AreaBuilding
+    climate.QS['land'][t] = CumulatedHeatGround * settings.AbsoLandscape
+    climate.QS['water'][t] = CumulatedHeatGround * settings.AbsoWater
     
     return {
-        "ground": CumulatedHeat * absorbGround,
-        "land": CumulatedHeat * settings.AbsoLandscape,
-        "water": CumulatedHeat * settings.AbsoWater
+        "ground": climate.QS['ground'][t],
+        "land": climate.QS['land'][t],
+        "water": climate.QS['water'][t]
     }
 
+def solarRadiationBuilding(t: int, climate: ClimateInfo):
+    """Building incident radiation per footprint area; zero is a valid RAD result."""
+    if climate.solarBuilding is None:
+        return climate.RadTotal[t]
+    return climate.solarBuilding[t]
 
 def solarRadiationTime(RadTotal, RadDiffuse, SVF, SDL, SDG=0.1, SRTL=0.4, SRTG=0.2, fPSA=0.2, CL=0.7, CG=0.8):
     """

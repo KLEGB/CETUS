@@ -163,7 +163,8 @@ def _copyClimateInfo(climate: ClimateInfo) -> ClimateInfo:
     Helper function used by the UHI calculation workflow.
     """
     return ClimateInfo(**{
-        slot_name: np.array(getattr(climate, slot_name), copy=True)
+        slot_name: (None if getattr(climate, slot_name) is None
+                    else np.array(getattr(climate, slot_name), copy=True))
         for slot_name in ClimateInfo.__slots__
     })
 
@@ -530,7 +531,7 @@ def main():
         if _isRasterDataset(parsed_value):
             parsed_value.close()
             raise ValueError(f"climate override {field_name} does not accept raster input; use the climate CSV instead")
-        if field_name == 'coolingLoad':
+        if field_name in {'coolingLoad', 'ACLoad', 'ACWasteHeat'}:
             setattr(climate, field_name, listObjToOptionalList(parsed_value))
         else:
             setattr(climate, field_name, listObj2List(parsed_value))

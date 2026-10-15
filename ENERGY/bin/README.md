@@ -1,5 +1,10 @@
 # MoosasEnergy Direct Integration Guide
 
+> Legacy `.i/.o` guide: use `MoosasEnergy-legacy.exe` (Windows) or
+> `MoosasEnergy-legacy` (Linux). The canonical `MoosasEnergy.exe` / `MoosasEnergy`
+> binaries now implement the JSON protocol in `Energy-Readme.md`, built from
+> `MoosasEnergy-new.go`. The Python legacy wrapper selects the legacy filenames.
+
 This document is for callers that want to execute `MoosasEnergy` directly, without going through `MoosasPy`.
 
 The current implementation is defined by:

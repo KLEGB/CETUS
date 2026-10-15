@@ -30,16 +30,8 @@ def _utm_epsg_for_lonlat(lon: float, lat: float) -> int:
     return 32600 + zone if lat >= 0 else 32700 + zone
 
 
-def _reproject_if_needed(
-    data: np.ndarray,
-    transform,
-    crs: CRS | None,
-    *,
-    src_nodata: float | None,
-) -> tuple[np.ndarray, object, CRS]:
+def _reproject_if_needed(data: np.ndarray, transform, crs: CRS | None, *, src_nodata: float | None) -> tuple[np.ndarray, object, CRS]:
     if crs is None:
-        # Some local preprocessing outputs (for example INX-derived rasters) are
-        # already in a meter-based local grid but omit CRS metadata.
         return data, transform, CRS.from_epsg(3857)
 
     src_crs = CRS.from_user_input(crs)
@@ -55,10 +47,7 @@ def _reproject_if_needed(
     pixel_y_deg = abs(float(transform.e))
     meters_per_degree_lat = 111320.0
     meters_per_degree_lon = meters_per_degree_lat * max(math.cos(math.radians(center_lat)), 1e-6)
-    target_resolution = max(
-        pixel_x_deg * meters_per_degree_lon,
-        pixel_y_deg * meters_per_degree_lat,
-    )
+    target_resolution = max(pixel_x_deg * meters_per_degree_lon, pixel_y_deg * meters_per_degree_lat)
 
     dst_transform, width, height = calculate_default_transform(
         src_crs,
@@ -84,13 +73,7 @@ def _reproject_if_needed(
     return dst, dst_transform, dst_crs
 
 
-def _clip_bounds_to_dataset(
-    dataset_bounds: tuple[float, float, float, float],
-    xmin: float | None,
-    xmax: float | None,
-    ymin: float | None,
-    ymax: float | None,
-) -> tuple[float, float, float, float] | None:
+def _clip_bounds_to_dataset(dataset_bounds: tuple[float, float, float, float], xmin: float | None, xmax: float | None, ymin: float | None, ymax: float | None) -> tuple[float, float, float, float] | None:
     left, bottom, right, top = dataset_bounds
     clip_left = left if xmin is None else max(left, float(xmin))
     clip_right = right if xmax is None else min(right, float(xmax))
@@ -101,11 +84,7 @@ def _clip_bounds_to_dataset(
     return clip_left, clip_bottom, clip_right, clip_top
 
 
-def _crop_raster(
-    data: np.ndarray,
-    transform,
-    bounds: tuple[float, float, float, float] | None,
-) -> tuple[np.ndarray, object]:
+def _crop_raster(data: np.ndarray, transform, bounds: tuple[float, float, float, float] | None) -> tuple[np.ndarray, object]:
     if bounds is None:
         return data, transform
     window = from_bounds(*bounds, transform=transform)
@@ -117,10 +96,7 @@ def _crop_raster(
     cropped = data[row_off : row_off + height, col_off : col_off + width]
     if cropped.size == 0:
         raise ValueError("Cropping bounds produced an empty raster.")
-    cropped_transform = rasterio.windows.transform(
-        rasterio.windows.Window(col_off, row_off, width, height),
-        transform,
-    )
+    cropped_transform = rasterio.windows.transform(rasterio.windows.Window(col_off, row_off, width, height), transform)
     return cropped, cropped_transform
 
 
@@ -163,12 +139,7 @@ def _calc_facade_area(height: np.ndarray, pixel_x: float, pixel_y: float) -> flo
     return float(right.sum() + down.sum())
 
 
-def _component_oriented_bbox(
-    coords_xy: np.ndarray,
-    pixel_x: float,
-    pixel_y: float,
-    wind_direction_deg: float,
-) -> tuple[float, float]:
+def _component_oriented_bbox(coords_xy: np.ndarray, pixel_x: float, pixel_y: float, wind_direction_deg: float) -> tuple[float, float]:
     if coords_xy.shape[0] == 1:
         width = pixel_x
         length = pixel_y
@@ -201,14 +172,7 @@ def _component_oriented_bbox(
     return diagonal, float(f_yf)
 
 
-def _calc_ks(
-    building_mask: np.ndarray,
-    transform,
-    pixel_x: float,
-    pixel_y: float,
-    total_area: float,
-    wind_direction_deg: float,
-) -> float:
+def _calc_ks(building_mask: np.ndarray, transform, pixel_x: float, pixel_y: float, total_area: float, wind_direction_deg: float) -> float:
     structure = np.ones((3, 3), dtype=np.uint8)
     labels, count = ndimage.label(building_mask.astype(np.uint8), structure=structure)
     if count == 0 or total_area <= 0.0:
@@ -227,16 +191,7 @@ def _calc_ks(
     return float(total_blockage / total_area)
 
 
-def process(
-    tif_path: str | Path,
-    floorHeight: float = 3.5,
-    SVFNeighbor: float = 250.0,
-    windDirectionDeg: float = 0.0,
-    xmin: float | None = None,
-    xmax: float | None = None,
-    ymin: float | None = None,
-    ymax: float | None = None,
-) -> dict[str, float]:
+def process(tif_path: str | Path, floorHeight: float = 3.5, SVFNeighbor: float = 250.0, windDirectionDeg: float = 0.0, xmin: float | None = None, xmax: float | None = None, ymin: float | None = None, ymax: float | None = None) -> dict[str, float]:
     tif_path = Path(tif_path)
     if floorHeight <= 0:
         raise ValueError("floorHeight must be > 0.")
@@ -265,7 +220,6 @@ def process(
     plot_ratio = float(((data / float(floorHeight)) * pixel_area).sum() / total_area) if total_area > 0.0 else 0.0
     facade_ratio = float(_calc_facade_area(data, pixel_x, pixel_y) / total_area) if total_area > 0.0 else 0.0
     local_svf = _calc_local_svf(data, pixel_x, pixel_y, SVFNeighbor)
-    # Keep SVF consistent with process_BLD_SHP.py: only outdoor cells contribute.
     outdoor_svf = local_svf[outdoor_mask]
     svf = float(outdoor_svf.mean()) if outdoor_svf.size else 1.0
     ks = _calc_ks(building_mask, transform, pixel_x, pixel_y, total_area, windDirectionDeg)
@@ -282,14 +236,14 @@ def process(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Summarize building-height tif metrics.")
-    parser.add_argument("--input", required=True, help="Input building height tif path.")
-    parser.add_argument("--floor-height", type=float, default=3.5, help="Meters per floor. Default: 3.5.")
-    parser.add_argument("--svf-neighbor", type=float, default=250.0, help="Local SVF neighborhood radius in meters. Default: 250.")
-    parser.add_argument("--wind-direction", type=float, default=0.0, help="Dominant wind direction in degrees, north=0 and clockwise positive. Default: 0.")
-    parser.add_argument("--xmin", type=float, help="Optional left clipping bound in raster CRS.")
-    parser.add_argument("--xmax", type=float, help="Optional right clipping bound in raster CRS.")
-    parser.add_argument("--ymin", type=float, help="Optional bottom clipping bound in raster CRS.")
-    parser.add_argument("--ymax", type=float, help="Optional top clipping bound in raster CRS.")
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--floor-height", type=float, default=3.5)
+    parser.add_argument("--svf-neighbor", type=float, default=250.0)
+    parser.add_argument("--wind-direction", type=float, default=0.0)
+    parser.add_argument("--xmin", type=float)
+    parser.add_argument("--xmax", type=float)
+    parser.add_argument("--ymin", type=float)
+    parser.add_argument("--ymax", type=float)
     args = parser.parse_args()
 
     result = process(

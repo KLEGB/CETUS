@@ -64,9 +64,25 @@ def _extract_zone_hourly_energy(sections: dict[str, list[str]]) -> dict[int, np.
         if len(parts) < 4:
             raise ValueError(f"Invalid !ZONE HOUR RESULT row: {line}")
         zone_index = int(parts[0])
-        zone_map.setdefault(zone_index, []).append([float(parts[1]), float(parts[2]), float(parts[3])])
+        zone_map.setdefault(zone_index, []).append([float(value) for value in parts[1:]])
 
     return {zone_index: np.asarray(values, dtype=np.float32) for zone_index, values in zone_map.items()}
+
+
+def _building_hourly_intensity_kwh_m2(
+    roof_intensity: np.ndarray,
+    middle_intensity: np.ndarray,
+    ground_intensity: np.ndarray,
+    effective_story_count: float,
+) -> np.ndarray:
+    """Convert roof/middle/ground layer intensities to representative-floor kWh/m2."""
+    if effective_story_count <= 1.0:
+        return (roof_intensity + ground_intensity) / 2.0
+    return (
+        roof_intensity
+        + middle_intensity * max(effective_story_count - 2.0, 0.0)
+        + ground_intensity
+    ) / effective_story_count
 
 
 def _building_hourly_load_wm2(
@@ -76,15 +92,41 @@ def _building_hourly_load_wm2(
     effective_story_count: float,
 ) -> np.ndarray:
     """Convert roof/middle/ground layer intensities to representative-floor W/m2."""
-    if effective_story_count <= 1.0:
-        hourly_intensity = (roof_intensity + ground_intensity) / 2.0
-    else:
-        hourly_intensity = (
-            roof_intensity
-            + middle_intensity * max(effective_story_count - 2.0, 0.0)
-            + ground_intensity
-        ) / effective_story_count
-    return hourly_intensity * 1000.0
+    return _building_hourly_intensity_kwh_m2(
+        roof_intensity,
+        middle_intensity,
+        ground_intensity,
+        effective_story_count,
+    ) * 1000.0
+
+
+def _summarize_hourly_series_kwh_m2(hoys: np.ndarray, hourly_values: np.ndarray) -> dict[str, float | list[float] | None]:
+    """Aggregate one hourly kWh/m2 series to year/month/day outputs matching existing simulation scopes."""
+    summary: dict[str, float | list[float] | None] = {
+        "year": None,
+        "month": None,
+        "daily": None,
+        "hourly": hourly_values.astype(np.float32).tolist(),
+    }
+
+    day_values: list[float] = []
+    for day_index in _complete_day_indices(hoys):
+        mask = (hoys >= day_index * 24) & (hoys < day_index * 24 + 24)
+        day_values.append(float(np.sum(hourly_values[mask])))
+    summary["daily"] = day_values
+
+    month_values: list[float] = []
+    for month_index in _complete_month_indices(hoys):
+        start = MONTH_START_HOURS[month_index]
+        end = MONTH_START_HOURS[month_index + 1]
+        mask = (hoys >= start) & (hoys < end)
+        month_values.append(float(np.sum(hourly_values[mask])))
+    summary["month"] = month_values
+
+    expected_hoys = np.arange(8760, dtype=np.int32)
+    if hoys.shape[0] == 8760 and np.array_equal(hoys, expected_hoys):
+        summary["year"] = float(np.sum(hourly_values))
+    return summary
 
 
 def _resolve_weather_hoys(weather_path: Path) -> np.ndarray:
@@ -393,6 +435,15 @@ class BuildingInstance:
     GFA: float = 0.0
     _perimeter: float = 0.0
     load: np.ndarray = field(default_factory=lambda: np.zeros(24, dtype=np.float32))
+    coolingLoad: np.ndarray = field(default_factory=lambda: np.zeros(24, dtype=np.float32))
+    heatingLoad: np.ndarray = field(default_factory=lambda: np.zeros(24, dtype=np.float32))
+    # Whole-building hourly energy (Wh), without clipping signed source terms.
+    ACLoad: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
+    ACWasteHeat: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
+    energyHOY: list[int] = field(default_factory=list)
+    loadDecompose: dict[str, object] = field(default_factory=dict)
+    energyModel: str = "legacy"
+    energyFeedback: dict[str, list[float]] = field(default_factory=dict)
     schedule: Schedule | None = None
     archetype: str = ""
 
@@ -510,6 +561,46 @@ class BuildingInstance:
         if isinstance(self.schedule, str):
             self.schedule = Schedule.from_text(self.schedule)
         self.load = np.asarray(self.load, dtype=np.float32)
+        self.coolingLoad = np.asarray(self.coolingLoad, dtype=np.float32)
+        self.heatingLoad = np.asarray(self.heatingLoad, dtype=np.float32)
+        self.ACLoad = np.asarray(self.ACLoad, dtype=np.float64)
+        self.ACWasteHeat = np.asarray(self.ACWasteHeat, dtype=np.float64)
+
+    def updateACResults(self) -> None:
+        """Derive whole-building Wh from signed hourly kWh/m2_GFA sources.
+
+        The algebra is retained outside the cooling season as well; these fields
+        do not replace the engine's clipped cooling/heating electricity outputs.
+        """
+        if self.energyModel == "steady":
+            terms = {}
+            for name in ("load_wh", "electricity_wh", "air_exchange_wh", "contact_transfer_wh"):
+                values = np.asarray(self.energyFeedback.get(name, []), dtype=np.float64)
+                if not self.energyHOY or values.shape != (len(self.energyHOY),) or not np.all(np.isfinite(values)):
+                    raise ValueError(f"Missing or invalid steady feedback term: {name}")
+                terms[name] = values
+            self.ACLoad = terms["load_wh"].copy()
+            self.ACWasteHeat = (self.ACLoad + terms["electricity_wh"]
+                                - terms["air_exchange_wh"] - terms["contact_transfer_wh"])
+            return
+        if self.energyModel != "legacy":
+            raise ValueError(f"Unknown energy model: {self.energyModel}")
+        eer = float(self.CoolingEER)
+        gfa = float(self.GFA)
+        if not math.isfinite(eer) or eer <= 0:
+            raise ValueError("CoolingEER must be finite and positive.")
+        if not math.isfinite(gfa) or gfa < 0:
+            raise ValueError("Building GFA must be finite and non-negative.")
+        sources = {}
+        expected_shape = (len(self.energyHOY),)
+        for name in ("solarLoad", "envelopeLoad", "ventLoad", "innerLoad"):
+            payload = self.loadDecompose.get(name, {})
+            values = np.asarray(payload.get("hourly", []), dtype=np.float64)
+            if not self.energyHOY or values.shape != expected_shape or not np.all(np.isfinite(values)):
+                raise ValueError(f"Missing or invalid hourly {name} decomposition for energyHOY.")
+            sources[name] = values * 1000.0 * gfa
+        self.ACLoad = sum(sources.values())
+        self.ACWasteHeat = sources["solarLoad"] + sources["innerLoad"] + self.ACLoad / eer
 
     @classmethod
     def _select_archetype_row(
@@ -798,10 +889,14 @@ class BuildingInstance:
         hourly: bool = False,
         weather_path: str | Path | None = None,
         work_dir: str | Path | None = None,
-    ) -> dict[str, float | list[float] | None]:
-        """Run MoosasEnergy for this building using a classic Moosas weather CSV."""
+        executable_path: str | Path | None = None,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, object]:
+        """Run MoosasEnergy with decomposition and whole-building hourly AC Wh."""
         if float(self.shapeFactor) <= 0.0:
             raise ValueError(f"Building has invalid shapeFactor={self.shapeFactor}")
+        if not math.isfinite(float(self.CoolingEER)) or float(self.CoolingEER) <= 0:
+            raise ValueError("CoolingEER must be finite and positive.")
         archetype = (self.archetype or "office").strip().lower()
         building_type = ARCHETYPE_BUILDING_TYPE.get(archetype)
         if building_type is None:
@@ -847,6 +942,8 @@ class BuildingInstance:
                 export_by_zone=True,
                 schedule_path=resolved_schedule_path,
                 cwd=simulation_root,
+                executable_path=executable_path,
+                timeout_seconds=timeout_seconds,
             )
             sections = parse_output_sections(actual_output)
             zone_hourly = _extract_zone_hourly_energy(sections)
@@ -868,6 +965,8 @@ class BuildingInstance:
                 ground_hourly[:, 1],
                 float(self.multipler),
             )
+            self.coolingLoad = np.asarray(cooling_wm2, dtype=np.float32)
+            self.heatingLoad = np.asarray(heating_wm2, dtype=np.float32)
             self.load = np.asarray(cooling_wm2 - heating_wm2, dtype=np.float32)
             hourly_kwh_m2 = (self.load / 1000.0).astype(np.float32)
 
@@ -877,12 +976,13 @@ class BuildingInstance:
                     f"Weather HOY count {hoys.shape[0]} does not match simulated hour count {hourly_kwh_m2.shape[0]}."
                 )
 
-            result: dict[str, float | list[float] | None] = {
+            result: dict[str, object] = {
                 "year": None,
                 "month": None,
                 "daily": None,
                 "hourly": None,
             }
+            self.loadDecompose = {}
 
             if hourly:
                 result["hourly"] = hourly_kwh_m2.tolist()
@@ -910,6 +1010,33 @@ class BuildingInstance:
                 else:
                     result["year"] = None
 
+            if any(zone.shape[1] < 7 for zone in (roof_hourly, middle_hourly, ground_hourly)):
+                raise ValueError("Energy output must contain all four hourly decomposition columns.")
+            source_columns = {
+                "solarLoad": 3,
+                "ventLoad": 4,
+                "innerLoad": 5,
+                "envelopeLoad": 6,
+            }
+            load_decompose: dict[str, object] = {}
+            for source_name, column_index in source_columns.items():
+                hourly_source = _building_hourly_intensity_kwh_m2(
+                    roof_hourly[:, column_index],
+                    middle_hourly[:, column_index],
+                    ground_hourly[:, column_index],
+                    float(self.multipler),
+                ).astype(np.float32)
+                load_decompose[source_name] = _summarize_hourly_series_kwh_m2(hoys, hourly_source)
+            self.loadDecompose = load_decompose
+            result["decompose"] = load_decompose
+
+            self.energyHOY = hoys.astype(int).tolist()
+            self.energyModel = "legacy"
+            self.energyFeedback = {}
+            self.updateACResults()
+            result["ACLoad"] = self.ACLoad.tolist()
+            result["ACWasteHeat"] = self.ACWasteHeat.tolist()
+
             return result
         finally:
             if temp_dir is not None:
@@ -919,6 +1046,10 @@ class BuildingInstance:
         """Serialize this building into a JSON-compatible dictionary."""
         data = {field_info.name: getattr(self, field_info.name) for field_info in fields(self)}
         data["load"] = np.asarray(self.load, dtype=np.float32).tolist()
+        data["coolingLoad"] = np.asarray(self.coolingLoad, dtype=np.float32).tolist()
+        data["heatingLoad"] = np.asarray(self.heatingLoad, dtype=np.float32).tolist()
+        data["ACLoad"] = self.ACLoad.tolist()
+        data["ACWasteHeat"] = self.ACWasteHeat.tolist()
         data["schedule"] = self.writeSchedule()
         return data
 

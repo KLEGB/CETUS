@@ -161,6 +161,10 @@ def epw2location(epw_path: Path) -> EpwLocation:
 
     pressures = np.array([float(row[9]) for row in climate_rows], dtype=float)
     dry_bulb_temperatures = np.array([float(row[6]) for row in climate_rows], dtype=float)
+    try:
+        climate_zone = classify_climate_zone(dry_bulb_temperatures)
+    except ValueError:
+        climate_zone = None
     return EpwLocation(
         station_id=str(first_row[5]).strip(),
         city=str(first_row[1]).strip(),
@@ -169,7 +173,7 @@ def epw2location(epw_path: Path) -> EpwLocation:
         longitude=float(first_row[7]),
         altitude=float(first_row[8]),
         pressure=float(np.mean(pressures)),
-        climate_zone=classify_climate_zone(dry_bulb_temperatures),
+        climate_zone=climate_zone,
     )
 
 

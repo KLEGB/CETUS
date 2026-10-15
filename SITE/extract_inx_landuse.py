@@ -11,25 +11,25 @@ from rasterio.transform import from_origin
 
 
 TARGET_SOIL_CODES = {
-    "000000",  # bare/undefined ground in this file
-    "0200PD",  # inferred soil / bare land
+    "000000",
+    "0200PD",
 }
 
 TARGET_WATER_CODES = {
-    "0200WW",  # deep water
+    "0200WW",
 }
 
 TARGET_ROAD_CODES = {
-    "0200ST",  # asphalt road
-    "0200AR",  # best-effort: additional hardscape/road-like code
+    "0200ST",
+    "0200AR",
 }
 
 TARGET_PAVED_CODES = {
-    "0200PG",  # concrete pavement gray
+    "0200PG",
 }
 
 TARGET_VEGETATION_SURFACE_CODES = {
-    "0200GG",  # best-effort: green/grass-like ground cover
+    "0200GG",
 }
 
 TARGET_PLANT_CODES = {
@@ -47,63 +47,60 @@ def _read_text(path: Path) -> str:
 
 
 def _parse_scalar(text: str, tag: str, default: str | None = None) -> str | None:
-    m = re.search(rf"<{re.escape(tag)}>\s*(.*?)\s*</{re.escape(tag)}>", text, re.S)
-    if not m:
+    match = re.search(rf"<{re.escape(tag)}>\s*(.*?)\s*</{re.escape(tag)}>", text, re.S)
+    if not match:
         return default
-    return m.group(1).strip()
+    return match.group(1).strip()
 
 
 def _parse_matrix(text: str, tag: str, *, dtype: str = "float") -> np.ndarray:
-    m = re.search(
+    match = re.search(
         rf"<{re.escape(tag)}[^>]*type=\"matrix-data\"[^>]*>(.*?)</{re.escape(tag)}>",
         text,
         re.S,
     )
-    if not m:
+    if not match:
         raise ValueError(f"matrix tag not found: {tag}")
 
     lines = []
-    for line in m.group(1).splitlines():
+    for line in match.group(1).splitlines():
         line = line.strip()
-        if not line:
-            continue
-        if line.startswith("<"):
+        if not line or line.startswith("<"):
             continue
         lines.append(line)
 
     rows: list[list[float | str]] = []
     for line in lines:
-        tokens = [tok.strip() for tok in line.split(",")]
+        tokens = [token.strip() for token in line.split(",")]
         if dtype == "str":
             rows.append(tokens)
             continue
 
         parsed_row: list[float] = []
-        for tok in tokens:
-            if tok == "":
+        for token in tokens:
+            if token == "":
                 parsed_row.append(0.0)
             else:
                 try:
-                    parsed_row.append(float(tok))
+                    parsed_row.append(float(token))
                 except ValueError:
                     parsed_row.append(0.0)
         rows.append(parsed_row)
 
-    arr = np.array(rows, dtype=object if dtype == "str" else np.float32)
-    return arr
+    return np.array(rows, dtype=object if dtype == "str" else np.float32)
 
 
 def _parse_3dplants(text: str) -> list[dict[str, str]]:
     plants = []
-    for m in re.finditer(r"<3Dplants>(.*?)</3Dplants>", text, re.S):
-        block = m.group(1)
-        rec: dict[str, str] = {}
+    for match in re.finditer(r"<3Dplants>(.*?)</3Dplants>", text, re.S):
+        block = match.group(1)
+        record: dict[str, str] = {}
         for key in ("rootcell_i", "rootcell_j", "rootcell_k", "plantID", "name", "observe"):
-            km = re.search(rf"<{re.escape(key)}>\s*(.*?)\s*</{re.escape(key)}>", block, re.S)
-            if km:
-                rec[key] = km.group(1).strip()
-        if rec:
-            plants.append(rec)
+            key_match = re.search(rf"<{re.escape(key)}>\s*(.*?)\s*</{re.escape(key)}>", block, re.S)
+            if key_match:
+                record[key] = key_match.group(1).strip()
+        if record:
+            plants.append(record)
     return plants
 
 
@@ -123,14 +120,12 @@ def _build_local_transform(nrows: int, cellsize_x: float, cellsize_y: float):
 
 def _write_tif(path: Path, array: np.ndarray, *, transform, dtype, nodata):
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = array
-
     with rasterio.open(
         path,
         "w",
         driver="GTiff",
-        height=data.shape[0],
-        width=data.shape[1],
+        height=array.shape[0],
+        width=array.shape[1],
         count=1,
         dtype=dtype,
         crs=None,
@@ -138,7 +133,7 @@ def _write_tif(path: Path, array: np.ndarray, *, transform, dtype, nodata):
         nodata=nodata,
         compress="lzw",
     ) as dst:
-        dst.write(data.astype(dtype), 1)
+        dst.write(array.astype(dtype), 1)
 
 
 def extract_layers(inx_path: Path, out_dir: Path, *, building_scale: float = 0.1):
@@ -166,8 +161,6 @@ def extract_layers(inx_path: Path, out_dir: Path, *, building_scale: float = 0.1
 
     building_mask = building_nr > 0
     effective_top = np.maximum(z_top, fixed_height)
-    # ENVI-met INX building height values are file-specific; this file's zTop/zBottom
-    # integers look like decimeter-style height codes, so 0.1 m/unit is the safest default.
     building_height = np.where(building_mask, np.maximum(effective_top - z_bottom, 0.0) * building_scale, 0.0)
     building_height = building_height.astype(np.float32)
 
@@ -175,10 +168,10 @@ def extract_layers(inx_path: Path, out_dir: Path, *, building_scale: float = 0.1
     vegetation_mask |= np.isin(plants_2d, list(TARGET_PLANT_CODES)).astype(np.uint8)
     vegetation_mask |= np.isin(soil_profile, list(TARGET_VEGETATION_SURFACE_CODES)).astype(np.uint8)
 
-    for rec in plants_3d:
+    for record in plants_3d:
         try:
-            i = int(rec.get("rootcell_i", "-1"))
-            j = int(rec.get("rootcell_j", "-1"))
+            i = int(record.get("rootcell_i", "-1"))
+            j = int(record.get("rootcell_j", "-1"))
         except ValueError:
             continue
         if 0 <= j < nrows and 0 <= i < ncols:
@@ -189,7 +182,6 @@ def extract_layers(inx_path: Path, out_dir: Path, *, building_scale: float = 0.1
     paved_mask = np.isin(soil_profile, list(TARGET_PAVED_CODES)).astype(np.uint8)
     soil_mask = np.isin(soil_profile, list(TARGET_SOIL_CODES)).astype(np.uint8)
 
-    # Preserve a compact combined view for QA and downstream edits.
     surface_class = np.zeros((nrows, ncols), dtype=np.uint8)
     surface_class[soil_mask.astype(bool)] = 6
     surface_class[paved_mask.astype(bool)] = 5
@@ -244,22 +236,9 @@ def extract_layers(inx_path: Path, out_dir: Path, *, building_scale: float = 0.1
 
 def main():
     parser = argparse.ArgumentParser(description="Extract ENVI-met INX land-use layers into GeoTIFF rasters.")
-    parser.add_argument(
-        "--input",
-        default=r"workplace/pazhou_actually.INX",
-        help="Path to the INX file.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default=r"workplace/rasters",
-        help="Output directory. Default: workplace/rasters.",
-    )
-    parser.add_argument(
-        "--building-scale",
-        type=float,
-        default=0.1,
-        help="Meters per zTop/zBottom unit for building height. Default: 0.1.",
-    )
+    parser.add_argument("--input", default=r"workplace/pazhou_actually.INX", help="Path to the INX file.")
+    parser.add_argument("--output-dir", default=r"workplace/rasters", help="Output directory. Default: workplace/rasters.")
+    parser.add_argument("--building-scale", type=float, default=0.1, help="Meters per zTop/zBottom unit for building height. Default: 0.1.")
     args = parser.parse_args()
 
     inx_path = Path(args.input)

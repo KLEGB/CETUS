@@ -179,6 +179,7 @@ def approximateTa(t, srfHeatFlux, airHeatFlux, climate: ClimateInfo, site: SiteI
         ))
         ventilationHeatFlux = alphaCanopy * (Ta - backgroundTemperature)
 
+ 
         # calculate canopy-air storage
         if dt is None:
             storageCoefficient, storageHeatFlux = 0.0, 0.0
@@ -191,7 +192,6 @@ def approximateTa(t, srfHeatFlux, airHeatFlux, climate: ClimateInfo, site: SiteI
 
         # canopy-air balance: surface sensible heat + air source - ventilation - storage
         residual = weightedSensibleHeatFlux + qAir - ventilationHeatFlux - storageHeatFlux
-
         return {
             "Ta": Ta,
             "Tg": Tg,
@@ -202,6 +202,7 @@ def approximateTa(t, srfHeatFlux, airHeatFlux, climate: ClimateInfo, site: SiteI
             "QV": ventilationHeatFlux,
             "storageCoefficient": storageCoefficient,
             "Qsa": storageHeatFlux,
+            "AirHeatFlux": qAir,
             "residual": residual,
         }
 
@@ -293,10 +294,16 @@ def approximateTa(t, srfHeatFlux, airHeatFlux, climate: ClimateInfo, site: SiteI
 
     # record all heat fluxes using the final internally consistent state
     finalAirTemperature = finalState["Ta"]
+    # print(t)
+    # print(finalState['alphaGroundAir'],finalState['alphaCanopy'])
+    # print(finalState['Tg'])
+    # print("Ta", finalAirTemperature)
+    # print(finalState["QH"])
+
     for surfaceName in surfaceNames:
         climate.QHFlux[surfaceName][t] = finalState["QH"][surfaceName]
-        climate.QVFlux[surfaceName][t] = finalState["QV"]
-        climate.Qsa[surfaceName][t] = finalState["Qsa"]
+        climate.QVFlux[surfaceName][t] = - finalState["QV"]
+        climate.Qsa[surfaceName][t] = - finalState["Qsa"]
 
     # print("converged Ta:", finalAirTemperature, "finalBalance:", finalState["residual"])
 

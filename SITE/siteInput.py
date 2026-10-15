@@ -10,10 +10,10 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from scripts.preprocess.calc_inx_uhi_inputs import calc_inx_uhi_inputs
-from scripts.preprocess.extract_inx_landuse import extract_layers
-from scripts.preprocess.process_BLD_SHP import processBuildingShp
-from scripts.preprocess.process_BLD_TIF import process as process_building_tif
+from .calc_inx_uhi_inputs import calc_inx_uhi_inputs
+from .extract_inx_landuse import extract_layers
+from .process_BLD_SHP import processBuildingShp
+from .process_BLD_TIF import process as process_building_tif
 
 
 SITE_INPUT_FIELDS = [
@@ -35,6 +35,7 @@ SITE_INPUT_FIELDS = [
     "coolingLoad",
     "SVF",
     "plotRatio",
+    "GFA",
     "SDL",
     "SDG",
     "SRTL",
@@ -189,6 +190,7 @@ class siteInput(object):
             site_kwargs["AreaWater"] = float(AreaWater)
             provided_fields.add("AreaWater")
         site_kwargs.update(overrides)
+
         return cls._from_site_kwargs(
             source_type="tif",
             source_path=tif_path,

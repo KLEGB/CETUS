@@ -36,7 +36,7 @@ def activityHeatFlowIntensity(t, climate: ClimateInfo, site: SiteInfo, settings:
             settings.settingLoad,
             isWeekDay=settings.isWeekDay,
         )
-        
+        cooling_load=0
         # climate.coolingLoad[t] = cooling_load
     else:
         cooling_load = float(prescribed_load)

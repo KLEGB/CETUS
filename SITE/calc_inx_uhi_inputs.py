@@ -9,7 +9,7 @@ import rasterio
 
 try:
     from scipy.signal import fftconvolve
-except Exception:  # pragma: no cover - optional dependency fallback
+except Exception:
     fftconvolve = None
 
 
@@ -50,14 +50,7 @@ def _same_grid(meta_list: list[dict]) -> dict:
 def _save_raster(path: Path, data: np.ndarray, meta: dict, *, dtype=None, nodata=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     out_meta = meta.copy()
-    out_meta.update(
-        {
-            "driver": "GTiff",
-            "count": 1,
-            "dtype": dtype or data.dtype,
-            "compress": "lzw",
-        }
-    )
+    out_meta.update({"driver": "GTiff", "count": 1, "dtype": dtype or data.dtype, "compress": "lzw"})
     if nodata is not None:
         out_meta["nodata"] = nodata
     else:
@@ -91,29 +84,11 @@ def _window_sum(arr: np.ndarray, radius_x: int, radius_y: int, label: str = "win
     for i in range(h):
         top = i
         bottom = i + 2 * radius_y
-        row = (
-            integ[bottom + 1, right + 1]
-            - integ[top, right + 1]
-            - integ[bottom + 1, left]
-            + integ[top, left]
-        )
+        row = integ[bottom + 1, right + 1] - integ[top, right + 1] - integ[bottom + 1, left] + integ[top, left]
         out[i] = row
         bar((i + 1) / total, label, dig=2)
     print()
     return out
-
-
-def _window_mean(arr: np.ndarray, radius_x: int, radius_y: int, label: str = "mean"):
-    summed = _window_sum(arr.astype(np.float32), radius_x, radius_y, label=label)
-    counts = _window_sum(np.ones_like(arr, dtype=np.float32), radius_x, radius_y, label=f"{label}-count")
-    with np.errstate(divide="ignore", invalid="ignore"):
-        mean = np.where(counts > 0, summed / counts, 0.0).astype(np.float32)
-    return mean
-
-
-def _box_count(mask: np.ndarray, radius_x: int, radius_y: int, label: str = "count"):
-    mask_f = mask.astype(np.float32)
-    return _window_sum(mask_f, radius_x, radius_y, label=label)
 
 
 def _distance_kernel(radius_x: int, radius_y: int, pixel_x: float, pixel_y: float, *, power: float = 1.0):
@@ -178,9 +153,7 @@ def _calc_local_svf(building_height: np.ndarray, pixel_x: float, pixel_y: float,
     weight_sum = _fft_convolve_same(np.ones_like(building_height, dtype=np.float32), kernel)
     with np.errstate(divide="ignore", invalid="ignore"):
         local_slope = np.where(weight_sum > 0, weighted_height / weight_sum, 0.0)
-    # Simplified sky-view proxy: larger surrounding height lowers sky exposure.
-    local_svf = 1.0 / (1.0 + local_slope)
-    return local_svf.astype(np.float32)
+    return (1.0 / (1.0 + local_slope)).astype(np.float32)
 
 
 def _load_inputs(input_dir: Path):
@@ -311,16 +284,6 @@ def calc_inx_uhi_inputs(
         "pixel_y": pixel_y,
         "shape": {"rows": shape[0], "cols": shape[1]},
         "outputs": list(outputs.keys()),
-        "notes": {
-            "building": "ratio of building footprint within the sliding window",
-            "ground": "ratio of soil + paved within the sliding window",
-            "road": "ratio of road within the sliding window",
-            "lanscape": "ratio of vegetation within the sliding window",
-            "water": "ratio of water within the sliding window",
-            "SVF": "simplified local sky-view proxy averaged over the sliding window",
-            "plotRatio": "floor area ratio from building height / 3.0m per floor",
-            "facadeArea": "sum of edge height differences times pixel edge length",
-        },
     }
     (output_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest
@@ -328,34 +291,11 @@ def calc_inx_uhi_inputs(
 
 def main():
     parser = argparse.ArgumentParser(description="Build UHI tif inputs from extract_inx_landuse.py outputs.")
-    parser.add_argument(
-        "--input-dir",
-        default=r"workplace/rasters",
-        help="Directory containing building_height.tif, vegetation.tif, water.tif, road.tif, paved.tif, soil.tif.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default=r"workplace/uhi_inputs",
-        help="Directory for generated UHI input tif files.",
-    )
-    parser.add_argument(
-        "--radius-m",
-        type=float,
-        default=1000.0,
-        help="Sliding window radius in meters for land-use aggregation.",
-    )
-    parser.add_argument(
-        "--svf-local-radius-m",
-        type=float,
-        default=250.0,
-        help="Local radius in meters used for the simplified SVF proxy.",
-    )
-    parser.add_argument(
-        "--building-floor-height-m",
-        type=float,
-        default=3.0,
-        help="Meters per floor for plotRatio estimation.",
-    )
+    parser.add_argument("--input-dir", default=r"workplace/rasters")
+    parser.add_argument("--output-dir", default=r"workplace/uhi_inputs")
+    parser.add_argument("--radius-m", type=float, default=1000.0)
+    parser.add_argument("--svf-local-radius-m", type=float, default=250.0)
+    parser.add_argument("--building-floor-height-m", type=float, default=3.0)
     args = parser.parse_args()
 
     manifest = calc_inx_uhi_inputs(

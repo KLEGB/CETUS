@@ -16,7 +16,7 @@ from .aT import saturationVaporPressure
 #     :param t: current time
 #     :return: long wave radiation heat intensity in specific daytime t (W/m2)
 #     """
-#     dc = -StefanBoltzmann * ((climate.Tg[t-1] + 273) ** 4) * (1 - prandtl(climate.Rh[t-1], climate.Ta[t-1], settings.BruntEmissivity)) * site.SVF 
+#     dc = -StefanBoltzmann * ((climate.Tg[t] + 273) ** 4) * (1 - prandtl(climate.Rh[t], climate.Ta[t], settings.BruntEmissivity)) * site.SVF 
 #     return dc
 
 def longWaveRadHeatIntensity(t, climate: ClimateInfo, site: SiteInfo, settings: settingInfo):
@@ -29,9 +29,11 @@ def longWaveRadHeatIntensity(t, climate: ClimateInfo, site: SiteInfo, settings: 
     :return: long wave radiation heat intensity on the GROUND in specific daytime t (W/m2)
     in the form of a dictionary with keys "ground", "land", and "water"
     """
-    dcGround = -StefanBoltzmann * ((climate.Tg_split['ground'][t-1] + 273) ** 4) * (1 - prandtl(climate.Rh[t-1], climate.Ta_split['ground'][t-1], settings.BruntEmissivity)) * site.SVF 
-    dcLand = -StefanBoltzmann * ((climate.Tg_split['land'][t-1] + 273) ** 4) * (1 - prandtl(climate.Rh[t-1], climate.Ta_split['land'][t-1], settings.BruntEmissivity)) * site.SVF 
-    dcWater = -StefanBoltzmann * ((climate.Tg_split['water'][t-1] + 273) ** 4) * (1 - prandtl(climate.Rh[t-1], climate.Ta_split['water'][t-1], settings.BruntEmissivity)) * site.SVF 
+    emission_ground = (settings.EmiGround * site.AreaGround + settings.EmiRoad * site.AreaRoad + settings.EmiRoof * site.AreaBuilding) / (site.AreaGround + site.AreaRoad + site.AreaBuilding)
+
+    dcGround = -emission_ground * StefanBoltzmann * ((climate.Tg_split['ground'][t] + 273) ** 4) * (1 - prandtl(climate.Rh[t], climate.Ta[t], settings.BruntEmissivity)) * site.SVF 
+    dcLand = -settings.EmiLandscape*StefanBoltzmann * ((climate.Tg_split['land'][t] + 273) ** 4) * (1 - prandtl(climate.Rh[t], climate.Ta[t], settings.BruntEmissivity)) * site.SVF 
+    dcWater = -settings.EmiWater*StefanBoltzmann * ((climate.Tg_split['water'][t] + 273) ** 4) * (1 - prandtl(climate.Rh[t], climate.Ta[t], settings.BruntEmissivity)) * site.SVF 
     climate.QL['ground'][t] = dcGround
     climate.QL['land'][t] = dcLand
     climate.QL['water'][t] = dcWater

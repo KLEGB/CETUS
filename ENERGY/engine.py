@@ -10,13 +10,13 @@ from pathlib import Path
 MODULE_DIR = Path(__file__).resolve().parent
 BIN_DIR = MODULE_DIR / "bin"
 EXECUTABLE_BY_SYSTEM = {
-    "Windows": BIN_DIR / "MoosasEnergy.exe",
-    "Linux": BIN_DIR / "MoosasEnergy",
+    "Windows": BIN_DIR / "MoosasEnergy-legacy.exe",
+    "Linux": BIN_DIR / "MoosasEnergy-legacy",
 }
 
 
 def default_energy_executable() -> Path:
-    """Return the bundled MoosasEnergy executable for the current OS."""
+    """Return the preserved legacy .i/.o engine for the current OS."""
     system = platform.system()
     try:
         return EXECUTABLE_BY_SYSTEM[system]
@@ -72,6 +72,8 @@ def build_energy_command(
         "1" if export_hourly else "0",
         "-z",
         "1" if export_by_zone else "0",
+        "-dc",
+        "1",  # Thermal decomposition is required for AC waste-heat feedback.
         "-o",
         str(Path(output_path).resolve()),
     ]
@@ -96,6 +98,7 @@ def run_energy_simulation(
     schedule_path: str | Path | None = None,
     executable_path: str | Path | None = None,
     cwd: str | Path | None = None,
+    timeout_seconds: float | None = None,
 ) -> Path:
     """Run MoosasEnergy and return the generated output file path."""
     command = build_energy_command(
@@ -120,6 +123,7 @@ def run_energy_simulation(
         encoding="utf-8",
         errors="replace",
         check=False,
+        timeout=timeout_seconds,
     )
     if result.returncode != 0:
         raise RuntimeError(

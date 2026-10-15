@@ -93,7 +93,7 @@
 | `shortWaveRadHeatIntensity`（`QS`） | 短波辐射得热热流密度 | W/m² |
 | `longWaveRadHeatIntensity`（`QL`） | 长波辐射散热热流密度 | W/m² |
 | `vaporHeatFlowIntensity`（`QV`） | 蒸发潜热热流密度 | W/m² |
-| `activityHeatFlowIntensity`（`QA`） | 人为活动排热热流密度 | W/m² |
+| `anthropicHeatFlowIntensity`（`QA`） | 人为活动排热热流密度 | W/m² |
 | 地层蓄热量 | 各下垫面地层蓄热通量 $Q_{ground}$（式64） | W/m² |
 | 冠层蓄热量 | 冠层空气蓄热通量 $Q_{storage,air}$（式69） | W/m² |
 | 感热通量 | 地表向冠层空气的感热对流 $Q_{conv}$（式56） | W/m² |

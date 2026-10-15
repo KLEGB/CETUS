@@ -289,9 +289,9 @@ class settingInfo(object):
                  'GroundTemperature', 'HAir',
                  'UDeepLand', 'UDeepGround', 'UDeepWater',
                  'CLand', 'CGround', 'CWater',
-                 'AbsoRoad', 'AbsoGround', 'AbsoLandscape', 'AbsoWater','CTTCD','CTTCB','CTTCQ',
+                 'AbsoRoad','AbsoRoof', 'AbsoGround', 'AbsoLandscape', 'AbsoWater','CTTCD','CTTCB','CTTCQ',
                  'rsveg', 'rsground', 'gWUEffnight', 'gWUEffday',
-                 'BruntEmissivity',
+                 'BruntEmissivity','EmiRoad','EmiRoof','EmiGround','EmiLandscape','EmiWater',
                  'qlx','settingLoad', 'intensity', 'annualDistance', 'FE', 'fuelDensity', 'NHC',
                  'coolingSetPoint', 'outSetPoint', 'inSetPoint','isWeekDay',
                  'outerMaxIter', 'outerTolerance', 'innerTolerance', 'relaxationFactor',
@@ -310,14 +310,15 @@ class settingInfo(object):
         # Ventilation overhead ratio used in the site blockage correction, dimensionless.
         self.k = 0.2 if kwargs.get('k') is None else kwargs.get('k')
         # Reference height of urban canopy, for the canopy-amospheric interface, m.
-        self.zRefd = 20 if kwargs.get('zRefd') is None else kwargs.get('zRefd')
+        self.zRefd = 400 if kwargs.get('zRefd') is None else kwargs.get('zRefd')
+        # Aerodynamic roughness length for the canopy-amospheric interface, m.
+        self.z0d = 1.5 if kwargs.get('z0d') is None else kwargs.get('z0d')
         # Meteorological wind reference height used in the bulk-transfer coefficient, m.
         self.zRef = 2.0 if kwargs.get('zRef') is None else kwargs.get('zRef')
 
 
         """Heat balance model settings"""
-        # Aerodynamic roughness length for the canopy-amospheric interface, m.
-        self.z0d = 2.0 if kwargs.get('z0d') is None else kwargs.get('z0d')
+
         # Aerodynamic roughness length used in the bulk-transfer coefficient, m.
         self.z0 = 0.001 if kwargs.get('z0') is None else kwargs.get('z0')
         # Empirical coefficient for natural convection above the urban surface, W/(m2.K^(4/3)).
@@ -344,6 +345,8 @@ class settingInfo(object):
         self.AbsoRoad = 0.74 if kwargs.get('AbsoRoad') is None else kwargs.get('AbsoRoad')
         # Short-wave absorptivity of hard bare ground surfaces, dimensionless.
         self.AbsoGround = 0.74 if kwargs.get('AbsoGround') is None else kwargs.get('AbsoGround')
+        # Short-wave absorptivity of building roofs, dimensionless.
+        self.AbsoRoof = self.AbsoGround if kwargs.get('AbsoRoof') is None else kwargs.get('AbsoRoof')
         # Short-wave absorptivity of vegetated land surfaces, dimensionless.
         self.AbsoLandscape = 0.80 if kwargs.get('AbsoLandscape') is None else kwargs.get('AbsoLandscape')
         # Short-wave absorptivity of urban water surfaces, dimensionless.
@@ -374,8 +377,19 @@ class settingInfo(object):
         """Long-wave emissivity settings"""
         # Clear-sky Brunt emissivity intercept used in the atmospheric long-wave emissivity model, dimensionless.
         self.BruntEmissivity = 0.605 if kwargs.get('BruntEmissivity') is None else kwargs.get('BruntEmissivity')
+        # Short-wave absorptivity of paved road surfaces, dimensionless.
+        self.EmiRoad = 0.94 if kwargs.get('EmiRoad') is None else kwargs.get('EmiRoad')
+        # Emissivity of hard bare ground surfaces, dimensionless.
+        self.EmiGround = 0.94 if kwargs.get('EmiGround') is None else kwargs.get('EmiGround')
+        # Emissivity of building roofs, dimensionless.
+        self.EmiRoof = 0.90 if kwargs.get('EmiRoof') is None else kwargs.get('EmiRoof')
+        # Emissivity of vegetated land surfaces, dimensionless.
+        self.EmiLandscape = 0.96 if kwargs.get('EmiLandscape') is None else kwargs.get('EmiLandscape')
+        # Emissivity of urban water surfaces, dimensionless.
+        self.EmiWater = 0.98 if kwargs.get('EmiWater') is None else kwargs.get('EmiWater')
 
-        """Activity heat settings, usually do not need to be changed"""
+
+        """anthropic heat settings, usually do not need to be changed"""
         # Road traffic density factor used to convert vehicle energy use to urban-area heat release, veh/ha or equivalent design factor.
         self.intensity = 20 if kwargs.get('intensity') is None else kwargs.get('intensity')
         # Mean annual vehicle travel distance represented by the traffic source term, km/a.
@@ -439,7 +453,7 @@ class SiteInfo(object):
                  'AreaBuilding','AreaFacade','AreaRoad','AreaGround','AreaLandscape','AreaWater','AreaTreeShading',
                  'kS',
                  'greenRoofPercentage', 'groundInfiltratePercentage',
-                 'SVF','plotRatio','SDL','SDG','SRTL','SRTG','fPSA','CL','CG']
+                 'SVF','plotRatio','GFA','SDL','SDG','SRTL','SRTG','fPSA','CL','CG']
 
     """
     :param AreaBuilding: absolute building occupied area. Under default initialization it is derived from 40% of total area.
@@ -469,7 +483,18 @@ class SiteInfo(object):
         groundPercentage = kwargs.get('AreaGround') if kwargs.get('AreaGround') is not None else 0.15
         landscapePercentage = kwargs.get('AreaLandscape') if kwargs.get('AreaLandscape') is not None else 0.3
         waterPercentage = kwargs.get('AreaWater') if kwargs.get('AreaWater') is not None else 0.05
-
+        self.TotalArea=1000*1000 if kwargs.get('TotalArea') is None else kwargs.get('TotalArea')
+        if bldPercentage>1.0:
+            bldPercentage/=self.TotalArea
+        if roadPercentage>1.0:
+            roadPercentage/=self.TotalArea
+        if groundPercentage>1.0:
+            groundPercentage/=self.TotalArea
+        if landscapePercentage>1.0:
+            landscapePercentage/=self.TotalArea
+        if waterPercentage>1.0:
+            waterPercentage/=self.TotalArea
+        
         scalePercentage = bldPercentage + landscapePercentage + waterPercentage
         if bldPercentage + landscapePercentage + waterPercentage > 0.8:
             bldPercentage *= 0.8 / scalePercentage
@@ -486,7 +511,7 @@ class SiteInfo(object):
             roadPercentage=roadPercentage_default
         sumPercentage = bldPercentage + landscapePercentage + waterPercentage + roadPercentage + groundPercentage
 
-        self.TotalArea=1000*1000 if kwargs.get('TotalArea') is None else kwargs.get('TotalArea')
+
 
         self.AreaBuilding = self.TotalArea*bldPercentage/sumPercentage
         self.AreaRoad = self.TotalArea*roadPercentage/sumPercentage
@@ -498,7 +523,9 @@ class SiteInfo(object):
         self.kS = 0.7 * self.AreaBuilding / self.TotalArea if kwargs.get('kS') is None else kwargs.get('kS')
         self.SVF = 0.7 if kwargs.get('SVF') is None else kwargs.get('SVF')
         self.plotRatio=bldPercentage*3 if kwargs.get('plotRatio') is None else kwargs.get('plotRatio')
-        self.AreaFacade=0.5*self.TotalArea if kwargs.get('AreaFacade') is None else kwargs.get('AreaFacade')*self.TotalArea
+        if kwargs.get('GFA') is not None:
+            self.GFA = float(kwargs['GFA'])
+        self.AreaFacade=0.5*self.TotalArea if kwargs.get('AreaFacade') is None else kwargs.get('AreaFacade')
         if self.AreaFacade<20.0:
             self.AreaFacade*=self.TotalArea
 
@@ -512,6 +539,18 @@ class SiteInfo(object):
         self.fPSA = 0.2 if kwargs.get('fPSA') is None else kwargs.get('fPSA')
         self.CL = 0.7 if kwargs.get('CL') is None else kwargs.get('CL')
         self.CG = 0.8 if kwargs.get('CG') is None else kwargs.get('CG')
+
+    def __setattr__(self, name, value):
+        """Keep GFA / TotalArea / plotRatio consistent for all input paths."""
+        if name in {'TotalArea', 'GFA', 'plotRatio'}:
+            value = float(value)
+            if not math.isfinite(value) or value < 0 or (name == 'TotalArea' and value == 0):
+                raise ValueError(f"Invalid site {name}: {value}")
+        object.__setattr__(self, name, value)
+        if name == 'plotRatio' and hasattr(self, 'TotalArea'):
+            object.__setattr__(self, 'GFA', value * self.TotalArea)
+        elif name in {'GFA', 'TotalArea'} and hasattr(self, 'GFA') and hasattr(self, 'TotalArea'):
+            object.__setattr__(self, 'plotRatio', self.GFA / self.TotalArea)
 
     def to_dict(self) -> dict[str, object]:
         return {slot_name: _jsonify_value(getattr(self, slot_name, None)) for slot_name in self.__slots__}
@@ -679,9 +718,9 @@ class SiteInfo(object):
 
 
 class ClimateInfo(object):
-    __slots__ =['RadTotal','RadDiffuse','Velocity','Ta','Tg','Tb','Rh', 'Pressure',
+    __slots__ =['solarBuilding','RadTotal','RadDiffuse','Velocity','Ta','Tg','Tb','Rh', 'Pressure',
                 'HOY','DewPoint','HumidityRatio','SkyTemperature','WindDirection',
-                'coolingLoad',
+                'coolingLoad', 'ACLoad', 'ACWasteHeat',
                 'Ta_split', 'Tg_split', 
                 'QS','QL','QV','QA','Qsa','Qsg','QGFlux','QHFlux','QVFlux'
                 ]
@@ -689,6 +728,7 @@ class ClimateInfo(object):
     All climate information should be a 24 length series of floats for each params.
     besides, the temporal result will be stored in the same class, for easy communication.
 
+    :param solarBuilding: 24-hour building incident solar intensity per building footprint area (W/m2); None uses RadTotal
     :param RadTotal: Total radiation in time t
     :param RadDiffuse: diffuse radiation in time t
     :param Velocity: wind speed in time t
@@ -702,7 +742,9 @@ class ClimateInfo(object):
     :param HumidityRatio: humidity ratio(kg/kg) used by the classic weather csv bridge
     :param SkyTemperature: sky temperature(C) retained when round-tripping the classic weather csv
     :param WindDirection: wind direction bucket used by the classic weather csv bridge
-    :param coolingLoad: optional prescribed building-load intensity in W/m2; None means use the empirical activity model
+    :param coolingLoad: hourly AC waste heat in Wh/m2_site (mean W/m2 over one hour); None uses the empirical anthropic model
+    :param ACLoad: aggregate signed hourly thermal load in Wh (steady: cooling minus heating)
+    :param ACWasteHeat: signed net heat in Wh; steady load + electricity - inward air/contact exchange
 
     :param Ta_split: Dry Bulb Temperature(C) in specific daytime t, which will be updated by the heat Balance method, split by surface type
     :param Tg_split: Ground Temperature(C) in specific daytime t, which will be updated by the heat Balance method, split by surface type
@@ -718,10 +760,16 @@ class ClimateInfo(object):
     """
 
     def __init__(self,**kwargs):
+        self.solarBuilding = None
+        if kwargs.get('solarBuilding') is not None:
+            values = np.asarray(kwargs['solarBuilding'], dtype=np.float32)
+            if values.shape != (24,) or not np.all(np.isfinite(values)) or np.any(values < 0):
+                raise ValueError('solarBuilding must be None or 24 finite non-negative hourly values.')
+            self.solarBuilding = values.copy()
         self.RadTotal:np.ndarray[np.float32]=listObj2List(kwargs.get('RadTotal')) if kwargs.get('RadTotal') is not None else listObj2List(defRadTotal)
         self.RadDiffuse:np.ndarray[np.float32]=listObj2List(kwargs.get('RadDiffuse')) if kwargs.get('RadDiffuse') is not None else listObj2List(defRadDiffuse)
         self.Velocity:np.ndarray[np.float32]=listObj2List(kwargs.get('Velocity')) if kwargs.get('Velocity') is not None else listObj2List(defVelocity)
-        self.Velocity = np.maximum(self.Velocity, 0.1).astype(np.float32)
+        self.Velocity = np.maximum(self.Velocity, 0.5).astype(np.float32)
         self.Ta:np.ndarray[np.float32]=listObj2List(kwargs.get('Ta')) if kwargs.get('Ta') is not None else listObj2List(defTa)
         self.Tg:np.ndarray[np.float32]=listObj2List(kwargs.get('Tg')) if kwargs.get('Tg') is not None else np.array(self.Ta, copy=True)
         self.Tb:np.ndarray[np.float32]=listObj2List(kwargs.get('Tb')) if kwargs.get('Tb') is not None else np.array(self.Ta, copy=True)
@@ -759,6 +807,10 @@ class ClimateInfo(object):
         self.coolingLoad = listObjToOptionalList(kwargs.get('coolingLoad'))
         if self.coolingLoad is None:
             self.coolingLoad = [None] * 24
+        # Whole-neighborhood hourly Wh; None denotes results not yet computed.
+        for name in ('ACLoad', 'ACWasteHeat'):
+            values = listObjToOptionalList(kwargs.get(name))
+            setattr(self, name, values if values is not None else [None] * 24)
         # temporary storage for the results
         for attr in ['Ta_split', 'Tg_split',
                      'QS','QL','QV','QA','Qsa','Qsg','QGFlux','QHFlux','QVFlux']:
@@ -808,13 +860,23 @@ class ClimateInfo(object):
             column_name = column_map.get(_normalize_name(slot_name))
             if column_name is None or slot_name.endswith("_split") or slot_name in CLIMATE_RESULT_FIELDS:
                 continue
-            if slot_name == "coolingLoad":
+            if slot_name in {"coolingLoad", "ACLoad", "ACWasteHeat"}:
                 values = [None] * 24
                 for t_value, raw_value in zip(t_values, sorted_case_frame[column_name].to_numpy()):
                     if pd.isna(raw_value):
                         continue
                     values[t_value] = float(raw_value)
                 climate_kwargs[slot_name] = values
+                continue
+            if slot_name == 'solarBuilding':
+                values = np.full(24, np.nan, dtype=np.float32)
+                for t_value, raw_value in zip(t_values, sorted_case_frame[column_name].to_numpy()):
+                    if not pd.isna(raw_value):
+                        values[t_value] = float(raw_value)
+                if not np.all(np.isnan(values)):
+                    if not np.all(np.isfinite(values)):
+                        raise ValueError('solarBuilding requires all 24 hourly values when provided.')
+                    climate_kwargs[slot_name] = values
                 continue
             base_values = np.array(getattr(default_climate, slot_name), copy=True)
             for t_value, raw_value in zip(t_values, sorted_case_frame[column_name].to_numpy()):

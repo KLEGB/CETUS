@@ -234,13 +234,23 @@ def _buildClimateInfo(sorted_case_frame: pd.DataFrame, column_map: dict[str, str
         column_name = column_map.get(_normalizeName(slot_name))
         if column_name is None:
             continue
-        if slot_name == 'coolingLoad':
-            base_values = listObjToOptionalList(None)
+        if slot_name in {'coolingLoad', 'ACLoad', 'ACWasteHeat'}:
+            base_values = [None] * 24
             for t_value, raw_value in zip(t_values, sorted_case_frame[column_name].to_numpy()):
                 if pd.isna(raw_value):
                     continue
                 base_values[t_value] = float(raw_value)
             climate_kwargs[slot_name] = base_values
+            continue
+        if slot_name == 'solarBuilding':
+            values = np.full(24, np.nan, dtype=np.float32)
+            for t_value, raw_value in zip(t_values, sorted_case_frame[column_name].to_numpy()):
+                if not pd.isna(raw_value):
+                    values[t_value] = float(raw_value)
+            if not np.all(np.isnan(values)):
+                if not np.all(np.isfinite(values)):
+                    raise ValueError('solarBuilding requires all 24 hourly values when provided.')
+                climate_kwargs[slot_name] = values
             continue
         base_values = np.array(getattr(DEFAULT_CLIMATE, slot_name), copy=True)
         for t_value, raw_value in zip(t_values, sorted_case_frame[column_name].to_numpy()):

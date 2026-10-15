@@ -112,6 +112,7 @@ type SimulationConfig struct {
 	OutputFilePath      string  // 输出文件路径（-o / -output）
 	WeatherFilePath     string  // 天气文件路径（-w / -weather）
 	ScheduleFilePath    string  // 作息表文件路径（-sch / -schedule），空字符串表示不使用
+	ExportDecompose     int     // 是否输出负荷分解（-dc / -decompose）：1=输出，0=不输出
 	BuildingType        int     // 建筑类型（-t / -type）：0=居住建筑，其他=公共建筑
 	ExportHourly        int     // 是否输出逐时数据（-r / -hourly）：1=输出，0=不输出
 	ExportDaily         int     // 是否输出逐日数据（-d / -daily）：1=输出，0=不输出
@@ -229,7 +230,22 @@ type EnergyItem struct {
 	CoolingEnergy  float64
 	HeatingEnergy  float64
 	LightingEnergy float64
+	SolarLoad      float64
+	VentLoad       float64
+	InnerLoad      float64
+	EnvelopeLoad   float64
 }
+
+const (
+	metricCooling = iota
+	metricHeating
+	metricLighting
+	metricSolarLoad
+	metricVentLoad
+	metricInnerLoad
+	metricEnvelopeLoad
+	metricCount
+)
 
 // Schedule 保存一条作息记录。
 type Schedule struct {
@@ -542,6 +558,61 @@ func selectedHoursForDay(dayIdx int) []int {
 	return globalTimeline.DayHourIndices[dayIdx]
 }
 
+func isWorkingHourByOccupancySchedule(space MoosasSpace, absHourIdx int) bool {
+	if !space.OccupantDensity.IsSchedule {
+		return true
+	}
+	return space.OccupantDensity.getValueAtHour(absHourIdx) > 0.0
+}
+
+func selectedOperatingHoursForDay(space MoosasSpace, dayIdx int, defaultAllDay bool) []int {
+	selectedHours := selectedHoursForDay(dayIdx)
+	if len(selectedHours) == 0 {
+		return nil
+	}
+
+	operatingHours := make([]int, 0, len(selectedHours))
+	if space.OccupantDensity.IsSchedule {
+		for _, absHourIdx := range selectedHours {
+			if isWorkingHourByOccupancySchedule(space, absHourIdx) {
+				operatingHours = append(operatingHours, absHourIdx)
+			}
+		}
+		return operatingHours
+	}
+
+	startHourIdx := 0
+	endHourIdx := 23
+	if !defaultAllDay {
+		startHourIdx = space.OccupancyStartHour - 1
+		endHourIdx = space.OccupancyEndHour - 2
+		if startHourIdx < 0 {
+			startHourIdx = 0
+		}
+		if endHourIdx > 23 {
+			endHourIdx = 23
+		}
+	}
+	for _, absHourIdx := range selectedHours {
+		hourIdx := absHourIdx % 24
+		if hourIdx >= startHourIdx && hourIdx <= endHourIdx {
+			operatingHours = append(operatingHours, absHourIdx)
+		}
+	}
+	return operatingHours
+}
+
+func scheduledSolarGainForOperatingHours(param SchedulableParam, dayIdx int, inSeason bool, space MoosasSpace, defaultAllDay bool) float64 {
+	if !inSeason {
+		return 0.0
+	}
+	total := 0.0
+	for _, absHourIdx := range selectedOperatingHoursForDay(space, dayIdx, defaultAllDay) {
+		total += param.getValueAtHour(absHourIdx)
+	}
+	return total
+}
+
 // ═════════════════════════════════════════════════════════════
 // 命令行入口
 // ═════════════════════════════════════════════════════════════
@@ -564,6 +635,7 @@ func printHelp() {
 	fmt.Println("  -d / -daily <1/0>      Export daily results (default: 0)")
 	fmt.Println("  -r / -hourly <1/0>     Export hourly results (default: 0)")
 	fmt.Println("  -z / -zone <1/0>       Export results by zone/space (default: 0)")
+	fmt.Println("  -dc / -decompose <1/0> Export thermal-load decomposition columns (default: 0)")
 	fmt.Println("  -sch / -schedule <path> Schedule file path (CSV format)")
 }
 
@@ -580,6 +652,7 @@ func main() {
 	config := SimulationConfig{
 		WeatherFilePath:     res,
 		OutputFilePath:      "MoosasEnergy.o",
+		ExportDecompose:     0,
 		BuildingType:        0,
 		ExportHourly:        0,
 		ExportDaily:         0,
@@ -628,6 +701,10 @@ func main() {
 			continue
 		case "-z", "-zone":
 			config.ExportByZone, _ = strconv.Atoi(os.Args[i+1])
+			i += 2
+			continue
+		case "-dc", "-decompose":
+			config.ExportDecompose, _ = strconv.Atoi(os.Args[i+1])
 			i += 2
 			continue
 		case "-sch", "-schedule":
@@ -765,9 +842,9 @@ func runSimulation(config SimulationConfig) {
 	// ── 执行能耗计算（按建筑类型分流） ──────────────
 	analysisStart := time.Now()
 	if config.BuildingType == 0 {
-		buildingModel.AnalysisResidential(config.ExportDaily, config.ExportHourly, config.ExportByZone)
+		buildingModel.AnalysisResidential(config.ExportDaily, config.ExportHourly, config.ExportByZone, config.ExportDecompose)
 	} else {
-		buildingModel.AnalysisPublic(config.ExportDaily, config.ExportHourly, config.ExportByZone)
+		buildingModel.AnalysisPublic(config.ExportDaily, config.ExportHourly, config.ExportByZone, config.ExportDecompose)
 	}
 	recordTiming("run.analysis_total", analysisStart)
 
@@ -784,65 +861,85 @@ func runSimulation(config SimulationConfig) {
 			outputBuilder.WriteString(";\n")
 		}
 	}
+	energyHeader := func(includeZone bool) string {
+		if includeZone {
+			if config.ExportDecompose == 1 {
+				return "!SpaceIndex,Cooling,Heating,Lighting,SolarLoad,VentLoad,InnerLoad,EnvelopeLoad\n"
+			}
+			return "!SpaceIndex,Cooling,Heating,Lighting\n"
+		}
+		if config.ExportDecompose == 1 {
+			return "!Cooling,Heating,Lighting,SolarLoad,VentLoad,InnerLoad,EnvelopeLoad\n"
+		}
+		return "!Cooling,Heating,Lighting\n"
+	}
 	if globalTimeline.FullYear {
-		outputBuilder.WriteString("!TOTAL:\n!Cooling,Heating,Lighting\n")
-		writeEnergyItem(&outputBuilder, globalEnergyResult.TotalAnnual, totalBuildingArea, 2)
-		outputBuilder.WriteString(";\n!SPACE RESULT:\n!Cooling,Heating,Lighting\n")
+		outputBuilder.WriteString("!TOTAL:\n")
+		outputBuilder.WriteString(energyHeader(false))
+		writeEnergyItem(&outputBuilder, globalEnergyResult.TotalAnnual, totalBuildingArea, 2, config.ExportDecompose == 1)
+		outputBuilder.WriteString(";\n!SPACE RESULT:\n")
+		outputBuilder.WriteString(energyHeader(false))
 		for spaceIdx, spaceResult := range globalEnergyResult.BySpace {
-			writeEnergyItem(&outputBuilder, spaceResult, buildingModel.Spaces[spaceIdx].FloorArea, 2)
+			writeEnergyItem(&outputBuilder, spaceResult, buildingModel.Spaces[spaceIdx].FloorArea, 2, config.ExportDecompose == 1)
 		}
 	}
 
 	if len(globalTimeline.CompleteMonths) > 0 && len(globalEnergyResult.ByMonth) > 0 {
 		appendSectionSeparator()
-		outputBuilder.WriteString("!MONTH RESULT:\n!Cooling,Heating,Lighting\n")
+		outputBuilder.WriteString("!MONTH RESULT:\n")
+		outputBuilder.WriteString(energyHeader(false))
 		for _, monthResult := range globalEnergyResult.ByMonth {
-			writeEnergyItem(&outputBuilder, monthResult, totalBuildingArea, 2)
+			writeEnergyItem(&outputBuilder, monthResult, totalBuildingArea, 2, config.ExportDecompose == 1)
 		}
 	}
 
 	if config.ExportDaily == 1 && len(globalTimeline.CompleteDays) > 0 && len(globalEnergyResult.ByDay) > 0 {
 		appendSectionSeparator()
-		outputBuilder.WriteString("!DAY RESULT:\n!Cooling,Heating,Lighting\n")
+		outputBuilder.WriteString("!DAY RESULT:\n")
+		outputBuilder.WriteString(energyHeader(false))
 		for _, dayResult := range globalEnergyResult.ByDay {
-			writeEnergyItem(&outputBuilder, dayResult, totalBuildingArea, 4)
+			writeEnergyItem(&outputBuilder, dayResult, totalBuildingArea, 4, config.ExportDecompose == 1)
 		}
 	}
 
 	if config.ExportHourly == 1 && len(globalTimeline.HOYs) > 0 && len(globalEnergyResult.ByHour) > 0 {
 		appendSectionSeparator()
-		outputBuilder.WriteString("!HOUR RESULT:\n!Cooling,Heating,Lighting\n")
+		outputBuilder.WriteString("!HOUR RESULT:\n")
+		outputBuilder.WriteString(energyHeader(false))
 		for _, hourResult := range globalEnergyResult.ByHour {
-			writeEnergyItem(&outputBuilder, hourResult, totalBuildingArea, 5)
+			writeEnergyItem(&outputBuilder, hourResult, totalBuildingArea, 5, config.ExportDecompose == 1)
 		}
 	}
 
 	if config.ExportByZone == 1 && len(globalTimeline.CompleteMonths) > 0 && len(globalEnergyResult.ByMonth) > 0 && len(globalEnergyResult.BySpaceMonth) > 0 {
 		appendSectionSeparator()
-		outputBuilder.WriteString("!ZONE MONTH RESULT:\n!SpaceIndex,Cooling,Heating,Lighting\n")
+		outputBuilder.WriteString("!ZONE MONTH RESULT:\n")
+		outputBuilder.WriteString(energyHeader(true))
 		for spaceIdx, spaceMonthResults := range globalEnergyResult.BySpaceMonth {
 			for _, monthResult := range spaceMonthResults {
-				writeEnergyItemWithZone(&outputBuilder, spaceIdx, monthResult, buildingModel.Spaces[spaceIdx].FloorArea, 2)
+				writeEnergyItemWithZone(&outputBuilder, spaceIdx, monthResult, buildingModel.Spaces[spaceIdx].FloorArea, 2, config.ExportDecompose == 1)
 			}
 		}
 	}
 
 	if config.ExportByZone == 1 && config.ExportDaily == 1 && len(globalTimeline.CompleteDays) > 0 && len(globalEnergyResult.BySpaceDay) > 0 {
 		appendSectionSeparator()
-		outputBuilder.WriteString("!ZONE DAY RESULT:\n!SpaceIndex,Cooling,Heating,Lighting\n")
+		outputBuilder.WriteString("!ZONE DAY RESULT:\n")
+		outputBuilder.WriteString(energyHeader(true))
 		for spaceIdx, spaceDayResults := range globalEnergyResult.BySpaceDay {
 			for _, dayResult := range spaceDayResults {
-				writeEnergyItemWithZone(&outputBuilder, spaceIdx, dayResult, buildingModel.Spaces[spaceIdx].FloorArea, 4)
+				writeEnergyItemWithZone(&outputBuilder, spaceIdx, dayResult, buildingModel.Spaces[spaceIdx].FloorArea, 4, config.ExportDecompose == 1)
 			}
 		}
 	}
 
 	if config.ExportByZone == 1 && config.ExportHourly == 1 && len(globalTimeline.HOYs) > 0 && len(globalEnergyResult.BySpaceHour) > 0 {
 		appendSectionSeparator()
-		outputBuilder.WriteString("!ZONE HOUR RESULT:\n!SpaceIndex,Cooling,Heating,Lighting\n")
+		outputBuilder.WriteString("!ZONE HOUR RESULT:\n")
+		outputBuilder.WriteString(energyHeader(true))
 		for spaceIdx, spaceHourResults := range globalEnergyResult.BySpaceHour {
 			for _, hourResult := range spaceHourResults {
-				writeEnergyItemWithZone(&outputBuilder, spaceIdx, hourResult, buildingModel.Spaces[spaceIdx].FloorArea, 5)
+				writeEnergyItemWithZone(&outputBuilder, spaceIdx, hourResult, buildingModel.Spaces[spaceIdx].FloorArea, 5, config.ExportDecompose == 1)
 			}
 		}
 	}
@@ -873,7 +970,7 @@ func runSimulation(config SimulationConfig) {
 //   - 无新风负荷和焓差计算
 //   - 灯光和设备使用居住建筑专用作息（可被 SchedulableParam 覆盖）
 //   - 渗风使用 AirCapacityRe（0.717）而非 AirCapacity（1.40）
-func (buildingModel MoosasEnergy) AnalysisResidential(exportDaily, exportHourly, exportByZone int) {
+func (buildingModel MoosasEnergy) AnalysisResidential(exportDaily, exportHourly, exportByZone, exportDecompose int) {
 	// ── 前处理：气候区判断与天气数据读取 ────────────
 	climateZoneStart := time.Now()
 	globalWeather = determineClimateZoneResidential(buildingModel.Latitude)
@@ -890,7 +987,7 @@ func (buildingModel MoosasEnergy) AnalysisResidential(exportDaily, exportHourly,
 	for spaceIdx := 0; spaceIdx < numSpaces; spaceIdx++ {
 		dailyLoadCache[spaceIdx] = make([][]float64, 365)
 		for dayIdx := 0; dayIdx < 365; dayIdx++ {
-			dailyLoadCache[spaceIdx][dayIdx] = make([]float64, 3)
+			dailyLoadCache[spaceIdx][dayIdx] = make([]float64, metricCount)
 		}
 	}
 	recordTiming("analysis_res.cache_alloc", cacheAllocStart)
@@ -904,7 +1001,7 @@ func (buildingModel MoosasEnergy) AnalysisResidential(exportDaily, exportHourly,
 			for dayIdx := 0; dayIdx < 365; dayIdx++ {
 				hourlyLoadCache[spaceIdx][dayIdx] = make([][]float64, 24)
 				for hourIdx := 0; hourIdx < 24; hourIdx++ {
-					hourlyLoadCache[spaceIdx][dayIdx][hourIdx] = make([]float64, 3)
+					hourlyLoadCache[spaceIdx][dayIdx][hourIdx] = make([]float64, metricCount)
 				}
 			}
 		}
@@ -933,6 +1030,9 @@ func (buildingModel MoosasEnergy) AnalysisResidential(exportDaily, exportHourly,
 				currentCoolingSetpointTemp := space.CoolingSetpointTemp.getValueAtHour(absHourIdx)
 				currentHeatingSetpointTemp := space.HeatingSetpointTemp.getValueAtHour(absHourIdx)
 				currentOccupantDensity := space.OccupantDensity.getValueAtHour(absHourIdx)
+				if !isWorkingHourByOccupancySchedule(space, absHourIdx) {
+					continue
+				}
 				currentOccupantHeatGain := space.OccupantHeatGain.getValueAtHour(absHourIdx)
 				currentEquipmentHeatGain := space.EquipmentHeatGain.getValueAtHour(absHourIdx)
 				currentLightingHeatGain := space.LightingHeatGain.getValueAtHour(absHourIdx)
@@ -940,9 +1040,9 @@ func (buildingModel MoosasEnergy) AnalysisResidential(exportDaily, exportHourly,
 				// 照明能耗：使用居住建筑硬编码作息 × 灯光散热强度
 				lightingEnergy := currentLightingHeatGain * residentialLightingSchedule[hourIdx] * space.FloorArea
 
-				dailyLoadCache[spaceIdx][dayIdx][2] += lightingEnergy
+				dailyLoadCache[spaceIdx][dayIdx][metricLighting] += lightingEnergy
 				if needHourlyCache {
-					hourlyLoadCache[spaceIdx][dayIdx][hourIdx][2] += lightingEnergy
+					hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricLighting] += lightingEnergy
 				}
 
 				if dayIdx >= globalWeather.CoolingSeasonStart && dayIdx <= globalWeather.CoolingSeasonEnd {
@@ -953,16 +1053,27 @@ func (buildingModel MoosasEnergy) AnalysisResidential(exportDaily, exportHourly,
 					heatDissipation := (currentOccupantDensity*currentOccupantHeatGain+currentEquipmentHeatGain*residentialEquipmentSchedule[hourIdx])*space.FloorArea + lightingEnergy
 
 					coolingLoad := float64(0)
+					ventLoad := float64(0)
 					if space.PerimeterZoneArea > 0 {
-						infiltrationLoad := AirDensity * AirCapacityRe * deltaT * space.FloorArea * space.StoryHeight * space.InfiltrationACH / 3.6
-						coolingLoad = clampToPositive(envelopeLoad + heatDissipation + infiltrationLoad)
+						ventLoad = AirDensity * AirCapacityRe * deltaT * space.FloorArea * space.StoryHeight * space.InfiltrationACH / 3.6
+						coolingLoad = clampToPositive(envelopeLoad + heatDissipation + ventLoad)
 					} else {
 						coolingLoad = clampToPositive(envelopeLoad + heatDissipation)
 					}
 
-					dailyLoadCache[spaceIdx][dayIdx][0] += coolingLoad
+					dailyLoadCache[spaceIdx][dayIdx][metricCooling] += coolingLoad
+					if exportDecompose == 1 {
+						dailyLoadCache[spaceIdx][dayIdx][metricVentLoad] += ventLoad
+						dailyLoadCache[spaceIdx][dayIdx][metricInnerLoad] += heatDissipation
+						dailyLoadCache[spaceIdx][dayIdx][metricEnvelopeLoad] += envelopeLoad
+					}
 					if needHourlyCache {
-						hourlyLoadCache[spaceIdx][dayIdx][hourIdx][0] += coolingLoad
+						hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricCooling] += coolingLoad
+						if exportDecompose == 1 {
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricVentLoad] += ventLoad
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricInnerLoad] += heatDissipation
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricEnvelopeLoad] += envelopeLoad
+						}
 					}
 
 				} else if dayIdx >= globalWeather.HeatingSeasonStart || dayIdx <= globalWeather.HeatingSeasonEnd {
@@ -973,16 +1084,27 @@ func (buildingModel MoosasEnergy) AnalysisResidential(exportDaily, exportHourly,
 					heatDissipation := (currentOccupantDensity*currentOccupantHeatGain+currentEquipmentHeatGain*residentialEquipmentSchedule[hourIdx])*space.FloorArea + lightingEnergy
 
 					heatingLoad := float64(0)
+					ventLoad := float64(0)
 					if space.PerimeterZoneArea > 0 {
-						infiltrationLoad := AirDensity * AirCapacityRe * deltaT * space.FloorArea * space.StoryHeight * space.InfiltrationACH / 3.6
-						heatingLoad = clampToPositive(envelopeLoad - heatDissipation + infiltrationLoad)
+						ventLoad = AirDensity * AirCapacityRe * deltaT * space.FloorArea * space.StoryHeight * space.InfiltrationACH / 3.6
+						heatingLoad = clampToPositive(envelopeLoad - heatDissipation + ventLoad)
 					} else {
 						heatingLoad = clampToPositive(envelopeLoad - heatDissipation)
 					}
 
-					dailyLoadCache[spaceIdx][dayIdx][1] += heatingLoad
+					dailyLoadCache[spaceIdx][dayIdx][metricHeating] += heatingLoad
+					if exportDecompose == 1 {
+						dailyLoadCache[spaceIdx][dayIdx][metricVentLoad] += ventLoad
+						dailyLoadCache[spaceIdx][dayIdx][metricInnerLoad] -= heatDissipation
+						dailyLoadCache[spaceIdx][dayIdx][metricEnvelopeLoad] += envelopeLoad
+					}
 					if needHourlyCache {
-						hourlyLoadCache[spaceIdx][dayIdx][hourIdx][1] += heatingLoad
+						hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricHeating] += heatingLoad
+						if exportDecompose == 1 {
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricVentLoad] += ventLoad
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricInnerLoad] -= heatDissipation
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricEnvelopeLoad] += envelopeLoad
+						}
 					}
 				}
 			}
@@ -995,42 +1117,76 @@ func (buildingModel MoosasEnergy) AnalysisResidential(exportDaily, exportHourly,
 			if dayIdx >= globalWeather.CoolingSeasonStart && dayIdx <= globalWeather.CoolingSeasonEnd {
 				summerDailySolarGain := adjustedSummerSolarGain
 				if space.SeasonalSummerSolarGain.IsSchedule {
-					summerDailySolarGain = seasonAwareDailySolarGain(space.SeasonalSummerSolarGain, dayIdx, true)
+					summerDailySolarGain = scheduledSolarGainForOperatingHours(space.SeasonalSummerSolarGain, dayIdx, true, space, true)
 				}
-				dailyLoadCache[spaceIdx][dayIdx][0] = clampToPositive(dailyLoadCache[spaceIdx][dayIdx][0]+summerDailySolarGain*space.WindowSHGC) / space.CoolingEER
+				solarLoad := summerDailySolarGain * space.WindowSHGC
+				if exportDecompose == 1 {
+					dailyLoadCache[spaceIdx][dayIdx][metricSolarLoad] += solarLoad
+				}
+				dailyLoadCache[spaceIdx][dayIdx][metricCooling] = clampToPositive(dailyLoadCache[spaceIdx][dayIdx][metricCooling]+solarLoad) / space.CoolingEER
 				if needHourlyCache {
 					if space.SeasonalSummerSolarGain.IsSchedule {
 						for hourIdx := 0; hourIdx < 24; hourIdx++ {
 							absHourIdx := dayIdx*24 + hourIdx
+							if !globalWeather.HourAvailable[absHourIdx] || !isWorkingHourByOccupancySchedule(space, absHourIdx) {
+								continue
+							}
 							hourlySolarGain := seasonAwareHourlySolarGain(space.SeasonalSummerSolarGain, absHourIdx, true) * space.WindowSHGC
-							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][0] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][0]+hourlySolarGain) / space.CoolingEER
+							if exportDecompose == 1 {
+								hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricSolarLoad] += hourlySolarGain
+							}
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricCooling] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricCooling]+hourlySolarGain) / space.CoolingEER
 						}
 					} else {
-						numWorkHours := 24 // 居住建筑全天运行
-						solarGainPerHour := summerDailySolarGain * space.WindowSHGC / float64(numWorkHours)
-						for hourIdx := 0; hourIdx < 24; hourIdx++ {
-							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][0] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][0]+solarGainPerHour) / space.CoolingEER
+						operatingHours := selectedOperatingHoursForDay(space, dayIdx, true)
+						if len(operatingHours) == 0 {
+							continue
+						}
+						solarGainPerHour := summerDailySolarGain * space.WindowSHGC / float64(len(operatingHours))
+						for _, absHourIdx := range operatingHours {
+							hourIdx := absHourIdx % 24
+							if exportDecompose == 1 {
+								hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricSolarLoad] += solarGainPerHour
+							}
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricCooling] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricCooling]+solarGainPerHour) / space.CoolingEER
 						}
 					}
 				}
 			} else if dayIdx >= globalWeather.HeatingSeasonStart || dayIdx <= globalWeather.HeatingSeasonEnd {
 				winterDailySolarGain := adjustedWinterSolarGain
 				if space.SeasonalWinterSolarGain.IsSchedule {
-					winterDailySolarGain = seasonAwareDailySolarGain(space.SeasonalWinterSolarGain, dayIdx, true)
+					winterDailySolarGain = scheduledSolarGainForOperatingHours(space.SeasonalWinterSolarGain, dayIdx, true, space, true)
 				}
-				dailyLoadCache[spaceIdx][dayIdx][1] = clampToPositive(dailyLoadCache[spaceIdx][dayIdx][1]-winterDailySolarGain*space.WindowSHGC) / space.HeatingEER
+				solarLoad := -winterDailySolarGain * space.WindowSHGC
+				if exportDecompose == 1 {
+					dailyLoadCache[spaceIdx][dayIdx][metricSolarLoad] += solarLoad
+				}
+				dailyLoadCache[spaceIdx][dayIdx][metricHeating] = clampToPositive(dailyLoadCache[spaceIdx][dayIdx][metricHeating]+solarLoad) / space.HeatingEER
 				if needHourlyCache {
 					if space.SeasonalWinterSolarGain.IsSchedule {
 						for hourIdx := 0; hourIdx < 24; hourIdx++ {
 							absHourIdx := dayIdx*24 + hourIdx
-							hourlySolarGain := seasonAwareHourlySolarGain(space.SeasonalWinterSolarGain, absHourIdx, true) * space.WindowSHGC
-							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][1] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][1]-hourlySolarGain) / space.HeatingEER
+							if !globalWeather.HourAvailable[absHourIdx] || !isWorkingHourByOccupancySchedule(space, absHourIdx) {
+								continue
+							}
+							hourlySolarGain := -seasonAwareHourlySolarGain(space.SeasonalWinterSolarGain, absHourIdx, true) * space.WindowSHGC
+							if exportDecompose == 1 {
+								hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricSolarLoad] += hourlySolarGain
+							}
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricHeating] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricHeating]+hourlySolarGain) / space.HeatingEER
 						}
 					} else {
-						numWorkHours := 24
-						solarGainPerHour := winterDailySolarGain * space.WindowSHGC / float64(numWorkHours)
-						for hourIdx := 0; hourIdx < 24; hourIdx++ {
-							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][1] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][1]-solarGainPerHour) / space.HeatingEER
+						operatingHours := selectedOperatingHoursForDay(space, dayIdx, true)
+						if len(operatingHours) == 0 {
+							continue
+						}
+						solarGainPerHour := -winterDailySolarGain * space.WindowSHGC / float64(len(operatingHours))
+						for _, absHourIdx := range operatingHours {
+							hourIdx := absHourIdx % 24
+							if exportDecompose == 1 {
+								hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricSolarLoad] += solarGainPerHour
+							}
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricHeating] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricHeating]+solarGainPerHour) / space.HeatingEER
 						}
 					}
 				}
@@ -1059,7 +1215,7 @@ func (buildingModel MoosasEnergy) AnalysisResidential(exportDaily, exportHourly,
 //   - 有新风负荷和焓差计算
 //   - 照明使用太阳辐射采光模型（calcLightingEnergy）
 //   - 渗风使用 AirCapacity（1.40）
-func (buildingModel MoosasEnergy) AnalysisPublic(exportDaily, exportHourly, exportByZone int) {
+func (buildingModel MoosasEnergy) AnalysisPublic(exportDaily, exportHourly, exportByZone, exportDecompose int) {
 	// ── 前处理：气候区判断与天气数据读取 ────────────
 	climateZoneStart := time.Now()
 	globalWeather = determineClimateZonePublic(buildingModel.Latitude)
@@ -1089,7 +1245,7 @@ func (buildingModel MoosasEnergy) AnalysisPublic(exportDaily, exportHourly, expo
 	for spaceIdx := 0; spaceIdx < numSpaces; spaceIdx++ {
 		dailyLoadCache[spaceIdx] = make([][]float64, 365)
 		for dayIdx := 0; dayIdx < 365; dayIdx++ {
-			dailyLoadCache[spaceIdx][dayIdx] = make([]float64, 3)
+			dailyLoadCache[spaceIdx][dayIdx] = make([]float64, metricCount)
 		}
 	}
 	recordTiming("analysis_pub.cache_alloc", cacheAllocStart)
@@ -1103,7 +1259,7 @@ func (buildingModel MoosasEnergy) AnalysisPublic(exportDaily, exportHourly, expo
 			for dayIdx := 0; dayIdx < 365; dayIdx++ {
 				hourlyLoadCache[spaceIdx][dayIdx] = make([][]float64, 24)
 				for hourIdx := 0; hourIdx < 24; hourIdx++ {
-					hourlyLoadCache[spaceIdx][dayIdx][hourIdx] = make([]float64, 3)
+					hourlyLoadCache[spaceIdx][dayIdx][hourIdx] = make([]float64, metricCount)
 				}
 			}
 		}
@@ -1135,14 +1291,8 @@ func (buildingModel MoosasEnergy) AnalysisPublic(exportDaily, exportHourly, expo
 			}
 			nightAvgOutdoorTemp := calcNightAverageOutdoorTemp(dayIdx, space.OccupancyStartHour, space.OccupancyEndHour)
 
-			for hourIdx := space.OccupancyStartHour - 1; hourIdx <= space.OccupancyEndHour-2; hourIdx++ {
-				if hourIdx < 0 {
-					hourIdx = 0
-				}
-				absHourIdx := dayIdx*24 + hourIdx
-				if !globalWeather.HourAvailable[absHourIdx] {
-					continue
-				}
+			for _, absHourIdx := range selectedOperatingHoursForDay(space, dayIdx, false) {
+				hourIdx := absHourIdx % 24
 
 				// 获取该小时 8 个可作息化参数的实际数值
 				currentCoolingSetpointTemp := space.CoolingSetpointTemp.getValueAtHour(absHourIdx)
@@ -1162,9 +1312,9 @@ func (buildingModel MoosasEnergy) AnalysisPublic(exportDaily, exportHourly, expo
 					glazingRatio, interiorZoneArea, space.PerimeterZoneArea, currentLightingHeatGain,
 				)
 
-				dailyLoadCache[spaceIdx][dayIdx][2] += hourlyLightingLoad
+				dailyLoadCache[spaceIdx][dayIdx][metricLighting] += hourlyLightingLoad
 				if needHourlyCache {
-					hourlyLoadCache[spaceIdx][dayIdx][hourIdx][2] += hourlyLightingLoad
+					hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricLighting] += hourlyLightingLoad
 				}
 
 				if dayIdx >= globalWeather.CoolingSeasonStart && dayIdx <= globalWeather.CoolingSeasonEnd {
@@ -1179,16 +1329,28 @@ func (buildingModel MoosasEnergy) AnalysisPublic(exportDaily, exportHourly, expo
 					freshAirLoad := currentOccupantDensity * currentFreshAirPerPerson * AirDensity * clampToPositive(enthalpyDiff) * space.FloorArea / 3.6
 					heatDissipation := (currentOccupantDensity*currentOccupantHeatGain+currentEquipmentHeatGain)*space.FloorArea + hourlyLightingLoad
 					coolingLoad := float64(0)
+					ventLoad := freshAirLoad
 					if space.PerimeterZoneArea > 0 {
 						infiltrationLoad := AirDensity * AirCapacity * clampToPositive(tempDiffCooling) * space.FloorArea * space.StoryHeight * space.InfiltrationACH / 3.6
-						coolingLoad = clampToPositive(envelopeLoad + freshAirLoad + heatDissipation + infiltrationLoad)
+						ventLoad += infiltrationLoad
+						coolingLoad = clampToPositive(envelopeLoad + heatDissipation + ventLoad)
 					} else {
-						coolingLoad = clampToPositive(envelopeLoad + freshAirLoad + heatDissipation)
+						coolingLoad = clampToPositive(envelopeLoad + heatDissipation + ventLoad)
 					}
 
-					dailyLoadCache[spaceIdx][dayIdx][0] += coolingLoad
+					dailyLoadCache[spaceIdx][dayIdx][metricCooling] += coolingLoad
+					if exportDecompose == 1 {
+						dailyLoadCache[spaceIdx][dayIdx][metricVentLoad] += ventLoad
+						dailyLoadCache[spaceIdx][dayIdx][metricInnerLoad] += heatDissipation
+						dailyLoadCache[spaceIdx][dayIdx][metricEnvelopeLoad] += envelopeLoad
+					}
 					if needHourlyCache {
-						hourlyLoadCache[spaceIdx][dayIdx][hourIdx][0] += coolingLoad
+						hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricCooling] += coolingLoad
+						if exportDecompose == 1 {
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricVentLoad] += ventLoad
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricInnerLoad] += heatDissipation
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricEnvelopeLoad] += envelopeLoad
+						}
 					}
 
 				} else if dayIdx >= globalWeather.HeatingSeasonStart || dayIdx <= globalWeather.HeatingSeasonEnd {
@@ -1201,16 +1363,28 @@ func (buildingModel MoosasEnergy) AnalysisPublic(exportDaily, exportHourly, expo
 					freshAirLoad := currentOccupantDensity * currentFreshAirPerPerson * AirDensity * AirCapacity * clampToPositive(tempDiffHeating) / 3.6 * space.FloorArea
 					heatDissipation := (currentOccupantDensity*currentOccupantHeatGain+currentEquipmentHeatGain)*space.FloorArea + hourlyLightingLoad
 					heatingLoad := float64(0)
+					ventLoad := freshAirLoad
 					if space.PerimeterZoneArea > 0 {
 						infiltrationLoad := AirDensity * AirCapacity * clampToPositive(tempDiffHeating) * space.FloorArea * space.StoryHeight * space.InfiltrationACH / 3.6
-						heatingLoad = clampToPositive(envelopeLoad + freshAirLoad - heatDissipation + infiltrationLoad)
+						ventLoad += infiltrationLoad
+						heatingLoad = clampToPositive(envelopeLoad + ventLoad - heatDissipation)
 					} else {
-						heatingLoad = clampToPositive(envelopeLoad + freshAirLoad - heatDissipation)
+						heatingLoad = clampToPositive(envelopeLoad + ventLoad - heatDissipation)
 					}
 
-					dailyLoadCache[spaceIdx][dayIdx][1] += heatingLoad
+					dailyLoadCache[spaceIdx][dayIdx][metricHeating] += heatingLoad
+					if exportDecompose == 1 {
+						dailyLoadCache[spaceIdx][dayIdx][metricVentLoad] += ventLoad
+						dailyLoadCache[spaceIdx][dayIdx][metricInnerLoad] -= heatDissipation
+						dailyLoadCache[spaceIdx][dayIdx][metricEnvelopeLoad] += envelopeLoad
+					}
 					if needHourlyCache {
-						hourlyLoadCache[spaceIdx][dayIdx][hourIdx][1] += heatingLoad
+						hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricHeating] += heatingLoad
+						if exportDecompose == 1 {
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricVentLoad] += ventLoad
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricInnerLoad] -= heatDissipation
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricEnvelopeLoad] += envelopeLoad
+						}
 					}
 				}
 			}
@@ -1219,60 +1393,70 @@ func (buildingModel MoosasEnergy) AnalysisPublic(exportDaily, exportHourly, expo
 			if dayIdx >= globalWeather.CoolingSeasonStart && dayIdx <= globalWeather.CoolingSeasonEnd {
 				summerDailySolarGain := adjustedSummerSolarGain
 				if space.SeasonalSummerSolarGain.IsSchedule {
-					summerDailySolarGain = seasonAwareDailySolarGain(space.SeasonalSummerSolarGain, dayIdx, true)
+					summerDailySolarGain = scheduledSolarGainForOperatingHours(space.SeasonalSummerSolarGain, dayIdx, true, space, false)
 				}
-				dailyLoadCache[spaceIdx][dayIdx][0] = clampToPositive(dailyLoadCache[spaceIdx][dayIdx][0]+summerDailySolarGain*space.WindowSHGC) / space.CoolingEER
+				solarLoad := summerDailySolarGain * space.WindowSHGC
+				if exportDecompose == 1 {
+					dailyLoadCache[spaceIdx][dayIdx][metricSolarLoad] += solarLoad
+				}
+				dailyLoadCache[spaceIdx][dayIdx][metricCooling] = clampToPositive(dailyLoadCache[spaceIdx][dayIdx][metricCooling]+solarLoad) / space.CoolingEER
 				if needHourlyCache {
 					if space.SeasonalSummerSolarGain.IsSchedule {
-						for hourIdx := space.OccupancyStartHour - 1; hourIdx <= space.OccupancyEndHour-2; hourIdx++ {
-							if hourIdx < 0 {
-								hourIdx = 0
-							}
-							absHourIdx := dayIdx*24 + hourIdx
+						for _, absHourIdx := range selectedOperatingHoursForDay(space, dayIdx, false) {
+							hourIdx := absHourIdx % 24
 							hourlySolarGain := seasonAwareHourlySolarGain(space.SeasonalSummerSolarGain, absHourIdx, true) * space.WindowSHGC
-							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][0] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][0]+hourlySolarGain) / space.CoolingEER
+							if exportDecompose == 1 {
+								hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricSolarLoad] += hourlySolarGain
+							}
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricCooling] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricCooling]+hourlySolarGain) / space.CoolingEER
 						}
 					} else {
-						numWorkHours := space.OccupancyEndHour - space.OccupancyStartHour
-						if numWorkHours <= 0 {
-							numWorkHours = 1
+						operatingHours := selectedOperatingHoursForDay(space, dayIdx, false)
+						if len(operatingHours) == 0 {
+							continue
 						}
-						solarGainPerWorkHour := summerDailySolarGain * space.WindowSHGC / float64(numWorkHours)
-						for hourIdx := space.OccupancyStartHour - 1; hourIdx <= space.OccupancyEndHour-2; hourIdx++ {
-							if hourIdx < 0 {
-								hourIdx = 0
+						solarGainPerWorkHour := summerDailySolarGain * space.WindowSHGC / float64(len(operatingHours))
+						for _, absHourIdx := range operatingHours {
+							hourIdx := absHourIdx % 24
+							if exportDecompose == 1 {
+								hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricSolarLoad] += solarGainPerWorkHour
 							}
-							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][0] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][0]+solarGainPerWorkHour) / space.CoolingEER
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricCooling] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricCooling]+solarGainPerWorkHour) / space.CoolingEER
 						}
 					}
 				}
 			} else if dayIdx >= globalWeather.HeatingSeasonStart || dayIdx <= globalWeather.HeatingSeasonEnd {
 				winterDailySolarGain := adjustedWinterSolarGain
 				if space.SeasonalWinterSolarGain.IsSchedule {
-					winterDailySolarGain = seasonAwareDailySolarGain(space.SeasonalWinterSolarGain, dayIdx, true)
+					winterDailySolarGain = scheduledSolarGainForOperatingHours(space.SeasonalWinterSolarGain, dayIdx, true, space, false)
 				}
-				dailyLoadCache[spaceIdx][dayIdx][1] = clampToPositive(dailyLoadCache[spaceIdx][dayIdx][1]-winterDailySolarGain*space.WindowSHGC) / space.HeatingEER
+				solarLoad := -winterDailySolarGain * space.WindowSHGC
+				if exportDecompose == 1 {
+					dailyLoadCache[spaceIdx][dayIdx][metricSolarLoad] += solarLoad
+				}
+				dailyLoadCache[spaceIdx][dayIdx][metricHeating] = clampToPositive(dailyLoadCache[spaceIdx][dayIdx][metricHeating]+solarLoad) / space.HeatingEER
 				if needHourlyCache {
 					if space.SeasonalWinterSolarGain.IsSchedule {
-						for hourIdx := space.OccupancyStartHour - 1; hourIdx <= space.OccupancyEndHour-2; hourIdx++ {
-							if hourIdx < 0 {
-								hourIdx = 0
+						for _, absHourIdx := range selectedOperatingHoursForDay(space, dayIdx, false) {
+							hourIdx := absHourIdx % 24
+							hourlySolarGain := -seasonAwareHourlySolarGain(space.SeasonalWinterSolarGain, absHourIdx, true) * space.WindowSHGC
+							if exportDecompose == 1 {
+								hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricSolarLoad] += hourlySolarGain
 							}
-							absHourIdx := dayIdx*24 + hourIdx
-							hourlySolarGain := seasonAwareHourlySolarGain(space.SeasonalWinterSolarGain, absHourIdx, true) * space.WindowSHGC
-							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][1] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][1]-hourlySolarGain) / space.HeatingEER
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricHeating] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricHeating]+hourlySolarGain) / space.HeatingEER
 						}
 					} else {
-						numWorkHours := space.OccupancyEndHour - space.OccupancyStartHour
-						if numWorkHours <= 0 {
-							numWorkHours = 1
+						operatingHours := selectedOperatingHoursForDay(space, dayIdx, false)
+						if len(operatingHours) == 0 {
+							continue
 						}
-						solarGainPerWorkHour := winterDailySolarGain * space.WindowSHGC / float64(numWorkHours)
-						for hourIdx := space.OccupancyStartHour - 1; hourIdx <= space.OccupancyEndHour-2; hourIdx++ {
-							if hourIdx < 0 {
-								hourIdx = 0
+						solarGainPerWorkHour := -winterDailySolarGain * space.WindowSHGC / float64(len(operatingHours))
+						for _, absHourIdx := range operatingHours {
+							hourIdx := absHourIdx % 24
+							if exportDecompose == 1 {
+								hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricSolarLoad] += solarGainPerWorkHour
 							}
-							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][1] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][1]-solarGainPerWorkHour) / space.HeatingEER
+							hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricHeating] = clampToPositive(hourlyLoadCache[spaceIdx][dayIdx][hourIdx][metricHeating]+solarGainPerWorkHour) / space.HeatingEER
 						}
 					}
 				}
@@ -1401,6 +1585,19 @@ func aggregateResults(numSpaces int, dailyLoadCache [][][]float64, hourlyLoadCac
 	}
 }
 
+func accumulateEnergyMetrics(item *EnergyItem, metrics []float64) {
+	if len(metrics) < metricCount {
+		return
+	}
+	item.CoolingEnergy += metrics[metricCooling]
+	item.HeatingEnergy += metrics[metricHeating]
+	item.LightingEnergy += metrics[metricLighting]
+	item.SolarLoad += metrics[metricSolarLoad]
+	item.VentLoad += metrics[metricVentLoad]
+	item.InnerLoad += metrics[metricInnerLoad]
+	item.EnvelopeLoad += metrics[metricEnvelopeLoad]
+}
+
 // ═════════════════════════════════════════════════════════════
 // 气候区判断
 // ═════════════════════════════════════════════════════════════
@@ -1445,37 +1642,25 @@ func aggregateResultsCropped(numSpaces int, dailyLoadCache [][][]float64, hourly
 	for spaceIdx := 0; spaceIdx < numSpaces; spaceIdx++ {
 		if globalTimeline.FullYear {
 			for dayIdx := 0; dayIdx < 365; dayIdx++ {
-				globalEnergyResult.TotalAnnual.CoolingEnergy += dailyLoadCache[spaceIdx][dayIdx][0]
-				globalEnergyResult.TotalAnnual.HeatingEnergy += dailyLoadCache[spaceIdx][dayIdx][1]
-				globalEnergyResult.TotalAnnual.LightingEnergy += dailyLoadCache[spaceIdx][dayIdx][2]
-				globalEnergyResult.BySpace[spaceIdx].CoolingEnergy += dailyLoadCache[spaceIdx][dayIdx][0]
-				globalEnergyResult.BySpace[spaceIdx].HeatingEnergy += dailyLoadCache[spaceIdx][dayIdx][1]
-				globalEnergyResult.BySpace[spaceIdx].LightingEnergy += dailyLoadCache[spaceIdx][dayIdx][2]
+				accumulateEnergyMetrics(&globalEnergyResult.TotalAnnual, dailyLoadCache[spaceIdx][dayIdx])
+				accumulateEnergyMetrics(&globalEnergyResult.BySpace[spaceIdx], dailyLoadCache[spaceIdx][dayIdx])
 			}
 		}
 
 		for outMonthIdx, monthIdx := range globalTimeline.CompleteMonths {
 			for dayIdx := monthStartDayIndex[monthIdx]; dayIdx < monthStartDayIndex[monthIdx+1]; dayIdx++ {
-				globalEnergyResult.ByMonth[outMonthIdx].CoolingEnergy += dailyLoadCache[spaceIdx][dayIdx][0]
-				globalEnergyResult.ByMonth[outMonthIdx].HeatingEnergy += dailyLoadCache[spaceIdx][dayIdx][1]
-				globalEnergyResult.ByMonth[outMonthIdx].LightingEnergy += dailyLoadCache[spaceIdx][dayIdx][2]
+				accumulateEnergyMetrics(&globalEnergyResult.ByMonth[outMonthIdx], dailyLoadCache[spaceIdx][dayIdx])
 				if exportByZone == 1 {
-					globalEnergyResult.BySpaceMonth[spaceIdx][outMonthIdx].CoolingEnergy += dailyLoadCache[spaceIdx][dayIdx][0]
-					globalEnergyResult.BySpaceMonth[spaceIdx][outMonthIdx].HeatingEnergy += dailyLoadCache[spaceIdx][dayIdx][1]
-					globalEnergyResult.BySpaceMonth[spaceIdx][outMonthIdx].LightingEnergy += dailyLoadCache[spaceIdx][dayIdx][2]
+					accumulateEnergyMetrics(&globalEnergyResult.BySpaceMonth[spaceIdx][outMonthIdx], dailyLoadCache[spaceIdx][dayIdx])
 				}
 			}
 		}
 
 		if exportDaily == 1 {
 			for outDayIdx, dayIdx := range globalTimeline.CompleteDays {
-				globalEnergyResult.ByDay[outDayIdx].CoolingEnergy += dailyLoadCache[spaceIdx][dayIdx][0]
-				globalEnergyResult.ByDay[outDayIdx].HeatingEnergy += dailyLoadCache[spaceIdx][dayIdx][1]
-				globalEnergyResult.ByDay[outDayIdx].LightingEnergy += dailyLoadCache[spaceIdx][dayIdx][2]
+				accumulateEnergyMetrics(&globalEnergyResult.ByDay[outDayIdx], dailyLoadCache[spaceIdx][dayIdx])
 				if exportByZone == 1 {
-					globalEnergyResult.BySpaceDay[spaceIdx][outDayIdx].CoolingEnergy += dailyLoadCache[spaceIdx][dayIdx][0]
-					globalEnergyResult.BySpaceDay[spaceIdx][outDayIdx].HeatingEnergy += dailyLoadCache[spaceIdx][dayIdx][1]
-					globalEnergyResult.BySpaceDay[spaceIdx][outDayIdx].LightingEnergy += dailyLoadCache[spaceIdx][dayIdx][2]
+					accumulateEnergyMetrics(&globalEnergyResult.BySpaceDay[spaceIdx][outDayIdx], dailyLoadCache[spaceIdx][dayIdx])
 				}
 			}
 		}
@@ -1484,13 +1669,9 @@ func aggregateResultsCropped(numSpaces int, dailyLoadCache [][][]float64, hourly
 			for outHourIdx, absHourIdx := range globalTimeline.HOYs {
 				dayIdx := absHourIdx / 24
 				hourIdx := absHourIdx % 24
-				globalEnergyResult.ByHour[outHourIdx].CoolingEnergy += hourlyLoadCache[spaceIdx][dayIdx][hourIdx][0]
-				globalEnergyResult.ByHour[outHourIdx].HeatingEnergy += hourlyLoadCache[spaceIdx][dayIdx][hourIdx][1]
-				globalEnergyResult.ByHour[outHourIdx].LightingEnergy += hourlyLoadCache[spaceIdx][dayIdx][hourIdx][2]
+				accumulateEnergyMetrics(&globalEnergyResult.ByHour[outHourIdx], hourlyLoadCache[spaceIdx][dayIdx][hourIdx])
 				if exportByZone == 1 {
-					globalEnergyResult.BySpaceHour[spaceIdx][outHourIdx].CoolingEnergy += hourlyLoadCache[spaceIdx][dayIdx][hourIdx][0]
-					globalEnergyResult.BySpaceHour[spaceIdx][outHourIdx].HeatingEnergy += hourlyLoadCache[spaceIdx][dayIdx][hourIdx][1]
-					globalEnergyResult.BySpaceHour[spaceIdx][outHourIdx].LightingEnergy += hourlyLoadCache[spaceIdx][dayIdx][hourIdx][2]
+					accumulateEnergyMetrics(&globalEnergyResult.BySpaceHour[spaceIdx][outHourIdx], hourlyLoadCache[spaceIdx][dayIdx][hourIdx])
 				}
 			}
 		}
@@ -1684,16 +1865,26 @@ func signOf(x float64) float64 {
 // 输出格式化
 // ═════════════════════════════════════════════════════════════
 
-func writeEnergyItem(builder *strings.Builder, item EnergyItem, buildingArea float64, precision int) {
+func writeEnergyItem(builder *strings.Builder, item EnergyItem, buildingArea float64, precision int, includeDecompose bool) {
 	builder.WriteString(strconv.FormatFloat(item.CoolingEnergy/buildingArea/1000, 'f', precision, 64))
 	builder.WriteByte(',')
 	builder.WriteString(strconv.FormatFloat(item.HeatingEnergy/buildingArea/1000, 'f', precision, 64))
 	builder.WriteByte(',')
 	builder.WriteString(strconv.FormatFloat(item.LightingEnergy/buildingArea/1000, 'f', precision, 64))
+	if includeDecompose {
+		builder.WriteByte(',')
+		builder.WriteString(strconv.FormatFloat(item.SolarLoad/buildingArea/1000, 'f', precision, 64))
+		builder.WriteByte(',')
+		builder.WriteString(strconv.FormatFloat(item.VentLoad/buildingArea/1000, 'f', precision, 64))
+		builder.WriteByte(',')
+		builder.WriteString(strconv.FormatFloat(item.InnerLoad/buildingArea/1000, 'f', precision, 64))
+		builder.WriteByte(',')
+		builder.WriteString(strconv.FormatFloat(item.EnvelopeLoad/buildingArea/1000, 'f', precision, 64))
+	}
 	builder.WriteByte('\n')
 }
 
-func writeEnergyItemWithZone(builder *strings.Builder, spaceIdx int, item EnergyItem, buildingArea float64, precision int) {
+func writeEnergyItemWithZone(builder *strings.Builder, spaceIdx int, item EnergyItem, buildingArea float64, precision int, includeDecompose bool) {
 	builder.WriteString(strconv.Itoa(spaceIdx))
 	builder.WriteByte(',')
 	builder.WriteString(strconv.FormatFloat(item.CoolingEnergy/buildingArea/1000, 'f', precision, 64))
@@ -1701,6 +1892,16 @@ func writeEnergyItemWithZone(builder *strings.Builder, spaceIdx int, item Energy
 	builder.WriteString(strconv.FormatFloat(item.HeatingEnergy/buildingArea/1000, 'f', precision, 64))
 	builder.WriteByte(',')
 	builder.WriteString(strconv.FormatFloat(item.LightingEnergy/buildingArea/1000, 'f', precision, 64))
+	if includeDecompose {
+		builder.WriteByte(',')
+		builder.WriteString(strconv.FormatFloat(item.SolarLoad/buildingArea/1000, 'f', precision, 64))
+		builder.WriteByte(',')
+		builder.WriteString(strconv.FormatFloat(item.VentLoad/buildingArea/1000, 'f', precision, 64))
+		builder.WriteByte(',')
+		builder.WriteString(strconv.FormatFloat(item.InnerLoad/buildingArea/1000, 'f', precision, 64))
+		builder.WriteByte(',')
+		builder.WriteString(strconv.FormatFloat(item.EnvelopeLoad/buildingArea/1000, 'f', precision, 64))
+	}
 	builder.WriteByte('\n')
 }
 

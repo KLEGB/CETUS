@@ -1,4 +1,4 @@
-from .calculator import activityDifference, vaporDifference, longWaveRadDifference, shortWaveRadDifference
+from .calculator import anthropicDifference, vaporDifference, longWaveRadDifference, shortWaveRadDifference
 from .calculator import calculate
 from .raster_calculator import raster2Grid, rasterSampling, sampleAndCalculate, writeHourlyRasterOutputs
 from .modelInfo import SiteInfo, ClimateInfo, settingInfo
@@ -8,7 +8,7 @@ from .csv_calculator import (
 )
 
 __all__ = [
-    'activityDifference',
+    'anthropicDifference',
     'vaporDifference',
     'longWaveRadDifference',
     'shortWaveRadDifference',
