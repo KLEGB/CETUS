@@ -167,3 +167,52 @@ func TestParallelBatchMatchesSerial(t *testing.T) {
 		}
 	}
 }
+
+func TestNetworkIRReplacement(t *testing.T) {
+	p := example()
+	p.Hours[0].NetworkIR = []float64{sigma * fourth(20), sigma * fourth(20), 0}
+	// Change the unused legacy sky boundary while retaining the same contact soil.
+	p.Hours[0].SkyIR = 1000
+	o, e := run(p)
+	if e != nil {
+		t.Fatal(e)
+	}
+	h := o.Hours[0]
+	if math.Abs(h.Zone-20) > 1e-8 || math.Abs(h.NetworkLW) > 1e-7 || h.SkyLW != 0 || h.GroundLW != 0 {
+		t.Fatal(h)
+	}
+	p.Hours[0].NetworkIR = []float64{1}
+	if _, e = run(p); e == nil {
+		t.Fatal("accepted incorrect network IR array")
+	}
+}
+
+func TestWindowLongwaveAbsorptionWithoutTransmission(t *testing.T) {
+	p := example()
+	p.Hours[0].Irr = []float64{0, 500, 0}
+	p.Hours[0].NetworkIR = []float64{sigma * fourth(20), sigma * fourth(20), 0}
+	cold, e := run(p)
+	if e != nil {
+		t.Fatal(e)
+	}
+	p.Hours[0].NetworkIR[1] = sigma * fourth(80)
+	hot, e := run(p)
+	if e != nil {
+		t.Fatal(e)
+	}
+	a, b := cold.Hours[0].Surfaces[1], hot.Hours[0].Surfaces[1]
+	if a.Transmitted != 3000 || b.Transmitted != a.Transmitted || a.Absorbed != b.Absorbed || a.Reflected != b.Reflected {
+		t.Fatal("IR changed solar transmission", a, b)
+	}
+	if b.Te <= a.Te || b.Ti <= a.Ti || b.Storage != 0 || math.Abs(hot.Hours[0].Residual) > 1e-5 {
+		t.Fatal("window IR absorption or balance failed", a, b)
+	}
+	p.Hours[0].Irr[1] = 0
+	night, e := run(p)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if night.Hours[0].Surfaces[1].Transmitted != 0 {
+		t.Fatal("longwave transmitted through window")
+	}
+}

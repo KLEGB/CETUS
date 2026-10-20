@@ -36,15 +36,16 @@ type Surface struct {
 	Layers    []Layer `json:"layers,omitempty"`
 }
 type Hour struct {
-	Air      float64   `json:"air_c"`
-	Ground   float64   `json:"ground_c"`
-	SkyIR    float64   `json:"sky_ir_w_m2"`
-	Irr      []float64 `json:"irradiance_w_m2"`
-	Internal float64   `json:"internal_w"`
-	Heat     float64   `json:"heat_setpoint_c"`
-	Cool     float64   `json:"cool_setpoint_c"`
-	Vent     float64   `json:"ventilation_w_k"`
-	Ho       []float64 `json:"ho_w_m2k,omitempty"`
+	NetworkIR []float64 `json:"network_ir_w_m2,omitempty"`
+	Air       float64   `json:"air_c"`
+	Ground    float64   `json:"ground_c"`
+	SkyIR     float64   `json:"sky_ir_w_m2"`
+	Irr       []float64 `json:"irradiance_w_m2"`
+	Internal  float64   `json:"internal_w"`
+	Heat      float64   `json:"heat_setpoint_c"`
+	Cool      float64   `json:"cool_setpoint_c"`
+	Vent      float64   `json:"ventilation_w_k"`
+	Ho        []float64 `json:"ho_w_m2k,omitempty"`
 	// Explicit compatibility gains only for validation inputs; never combined with optical gains.
 	Transmitted float64 `json:"additional_transmitted_w,omitempty"`
 	GlassInward float64 `json:"additional_glass_inward_w,omitempty"`
@@ -73,6 +74,7 @@ type SurfaceOut struct {
 	Transmitted float64 `json:"transmitted_w"`
 }
 type OutputHour struct {
+	NetworkLW     float64      `json:"longwave_to_network_w"`
 	Zone          float64      `json:"zone_c"`
 	HVAC          float64      `json:"hvac_w"` // positive heating, negative cooling
 	Electricity   float64      `json:"electricity_w"`
@@ -144,6 +146,9 @@ func validate(p Input) error {
 		}
 	}
 	for _, h := range p.Hours {
+		if len(h.NetworkIR) != 0 && len(h.NetworkIR) != len(p.Surfaces) {
+			return fmt.Errorf("network IR array size mismatch")
+		}
 		if len(h.Irr) != len(p.Surfaces) || (len(h.Ho) != 0 && len(h.Ho) != len(p.Surfaces)) {
 			return fmt.Errorf("hourly surface array size mismatch")
 		}
@@ -155,7 +160,7 @@ func validate(p Input) error {
 		if h.Air <= -273.15 || h.Ground <= -273.15 || h.SkyIR <= 0 || h.Internal < 0 || h.Heat > h.Cool || h.Vent < 0 || h.Transmitted < 0 || h.GlassInward < 0 {
 			return fmt.Errorf("invalid hour")
 		}
-		for _, a := range [][]float64{h.Irr, h.Ho} {
+		for _, a := range [][]float64{h.Irr, h.Ho, h.NetworkIR} {
 			for _, x := range a {
 				if !finite(x) || x < 0 {
 					return fmt.Errorf("invalid irradiation or film")
@@ -285,8 +290,13 @@ func hour(p Input, h Hour, old []float64, t []topology, n int) (OutputHour, []fl
 				}
 				boundary(a, b, v.ext, ho*s.Area, h.Air)
 				boundary(a, b, v.ext, s.GroundH*s.Area, h.Ground)
-				boundary(a, b, v.ext, hr(s.Eps, x[v.ext], sky)*s.Area*s.Sky, sky)
-				boundary(a, b, v.ext, hr(s.Eps, x[v.ext], h.Ground)*s.Area*s.Ground, h.Ground)
+				if len(h.NetworkIR) > 0 && s.Kind != "floor" {
+					tr := math.Pow(h.NetworkIR[k]/sigma, .25) - 273.15
+					boundary(a, b, v.ext, hr(s.Eps, x[v.ext], tr)*s.Area, tr)
+				} else {
+					boundary(a, b, v.ext, hr(s.Eps, x[v.ext], sky)*s.Area*s.Sky, sky)
+					boundary(a, b, v.ext, hr(s.Eps, x[v.ext], h.Ground)*s.Area*s.Ground, h.Ground)
+				}
 				absorbed := (1 - s.Rho - s.Tau) * h.Irr[k] * s.Area
 				b[v.ext] += absorbed * (1 - s.AbsInside)
 				b[v.in] += absorbed*s.AbsInside + solar*weights[k]
@@ -371,10 +381,14 @@ func hour(p Input, h Hour, old []float64, t []topology, n int) (OutputHour, []fl
 		}
 		out.Convection += ho * s.Area * (o.Te - h.Air)
 		out.GroundContact += s.GroundH * s.Area * (o.Te - h.Ground)
-		out.GroundLW += s.Area * s.Eps * s.Ground * sigma * (fourth(o.Te) - fourth(h.Ground))
-		out.SkyLW += s.Area * s.Eps * s.Sky * (sigma*fourth(o.Te) - h.SkyIR)
+		if len(h.NetworkIR) > 0 && s.Kind != "floor" {
+			out.NetworkLW += s.Area * s.Eps * (sigma*fourth(o.Te) - h.NetworkIR[k])
+		} else {
+			out.GroundLW += s.Area * s.Eps * s.Ground * sigma * (fourth(o.Te) - fourth(h.Ground))
+			out.SkyLW += s.Area * s.Eps * s.Sky * (sigma*fourth(o.Te) - h.SkyIR)
+		}
 	}
-	out.Residual = sw + h.Transmitted + h.GlassInward + h.Internal + qhvac - out.Convection - out.Ventilation - out.GroundContact - out.GroundLW - out.SkyLW - out.Storage
+	out.Residual = sw + h.Transmitted + h.GlassInward + h.Internal + qhvac - out.Convection - out.Ventilation - out.GroundContact - out.GroundLW - out.SkyLW - out.NetworkLW - out.Storage
 	if math.Abs(out.Residual) > 1e-4+1e-9*(sw+h.Internal+math.Abs(qhvac)) {
 		return OutputHour{}, nil, fmt.Errorf("building balance residual %g W", out.Residual)
 	}

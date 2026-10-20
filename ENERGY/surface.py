@@ -48,7 +48,8 @@ class SurfaceEngine:
         self.errors = tempfile.TemporaryFile(mode='w+t')
         self.process = subprocess.Popen([str(ensure_surface_binary(executable_path))],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.errors,
-            text=True, encoding='utf-8', bufsize=1)
+            text=True, encoding='utf-8', bufsize=1,
+            env={**os.environ,'GOMAXPROCS':os.environ.get('CETUS_ENERGY_WORKERS','4')})
         self.responses = queue.Queue()
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
@@ -124,9 +125,8 @@ def build_surface_input(building, climate, *, irradiance=None, options=None):
         raise ValueError('Invalid building geometry')
     if not 0 <= building.SkylightArea <= building.RoofArea:
         raise ValueError('Skylight area must be contained in roof area')
-    stories = gfa / footprint
-    area = {'wall': building.ExteriorWallArea*stories, 'roof': building.RoofArea-building.SkylightArea,
-            'floor': building.GroundFloorArea, 'window': building.ExteriorWindowArea*stories,
+    area = {'wall': building._perimeter*building.height*(1-building.wwr), 'roof': building.RoofArea-building.SkylightArea,
+            'floor': building.GroundFloorArea, 'window': building._perimeter*building.height*building.wwr,
             'skylight': building.SkylightArea}
     ghi = np.maximum(np.asarray(climate.RadTotal, dtype=float), 0)
     dhi = np.clip(np.asarray(climate.RadDiffuse, dtype=float), 0, ghi)
@@ -159,7 +159,7 @@ def build_surface_input(building, climate, *, irradiance=None, options=None):
         tau = float(building.WindowSHGC) if window else 0.0
         surface = dict(name=name, kind=name, area_m2=float(area[name]), resistance_m2k_w=resistance,
             thermal_mass_j_m2k=0.0 if window else (120000.0 if name=='floor' else 60000.0),
-            reflectance=1-tau if window else .26, transmittance=tau, emissivity=.84 if window else .9,
+            reflectance=(getattr(building,'WindowReflectance',None) if getattr(building,'WindowReflectance',None) is not None else 1-tau) if window else getattr(building,'RoofReflectance' if name=='roof' else 'WallReflectance',.26), transmittance=tau, emissivity=getattr(building,'WindowEmissivity',.84) if window else getattr(building,'RoofEmissivity' if name=='roof' else 'WallEmissivity',.9),
             hi_w_m2k=3.0, ho_w_m2k=0.0 if name=='floor' else 10.0,
             sky_view=0.0 if name=='floor' else (1.0 if name in {'roof','skylight'} else .5),
             ground_view=.5 if name in {'wall','window'} else 0.0,

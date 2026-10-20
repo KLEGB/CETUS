@@ -242,8 +242,14 @@ class Neighborhood:
     _weather_csv: str | None = None
     _mtx: str | None = None
     _rad: str | None = None
+    _radiation_network: object | None = None
     _height_field: str = "height"
     _energy_results: list[dict[str, object]] | None = None
+
+    @property
+    def radiation_network(self):
+        """Loaded point network; flux channels are incident W/m2."""
+        return self._radiation_network
 
     def __post_init__(self) -> None:
         self.syncSiteGFA()
@@ -284,9 +290,8 @@ class Neighborhood:
             max_temp_delta=max_temp_delta,
         )
         neighborhood.readSHP(shpFile, fvc=fvc, fwc=fwc)
-        neighborhood.radSimulation(radFile=radFile, sample=float(sample))
-
         neighborhood.sampleInstance()
+        neighborhood.radSimulation(radFile=radFile, sample=float(sample))
         return neighborhood
 
     @classmethod
@@ -316,7 +321,8 @@ class Neighborhood:
             smooth_weather=smooth_weather,
             max_temp_delta=max_temp_delta,
         )
-        neighborhood.sampleInstance(radFile=radFile)
+        neighborhood.sampleInstance()
+        neighborhood.radSimulation(radFile=radFile)
         return neighborhood
 
     def readSHP(
@@ -389,6 +395,7 @@ class Neighborhood:
             buildings.append(building)
 
         self._rad = None
+        self._radiation_network = None
         for climate in self.climate:
             climate.solarBuilding = None
         self.buildings = buildings
@@ -410,14 +417,13 @@ class Neighborhood:
         seed: int | None = None,
         radFile: str | Path | None = None,
     ) -> "Neighborhood":
-        """Randomly assign archetypes to all buildings and attach solar schedules."""
+        """Freeze building archetypes before RAD; defer solar forcing until Energy."""
         climate_zone = self.location.climate_zone
         if climate_zone is None:
             raise ValueError("Neighborhood.location.climate_zone is not set. Call readEPW() first.")
         if radFile is not None:
             self._rad = str(Path(radFile).resolve())
-        elif self._rad is None:
-            raise ValueError("Neighborhood.radSimulation() must be called before sampleInstance().")
+
         if not self.buildings:
             raise ValueError("Neighborhood.buildings is empty. Call readSHP() first.")
         weights = {
@@ -440,7 +446,11 @@ class Neighborhood:
         for building in self.buildings:
             chosen_type = rng.choices(archetypes, weights=normalized_weights, k=1)[0]
             building.fromArchetype(climate_zone, chosen_type, standard=standard, rng=rng)
-        self.processRad()
+        if self._radiation_network is not None:
+            self._radiation_network = None
+            self._rad = None
+        for climate in self.climate:
+            climate.solarBuilding = None
         self.syncSiteGFA()
         return self
 
@@ -604,10 +614,47 @@ class Neighborhood:
         self._expanded_end_hoy = int(expanded_end_hoy)
         return self
 
-    def radSimulation(self, epwFile: str | Path | None = None, *, radFile: str | Path | None = None, sample: float = 0.3) -> "Neighborhood":
-        """Create or reuse yearly radiation results for the current shapefile."""
+    def radSimulation(self, epwFile: str | Path | None = None, *, radFile: str | Path | None = None, sample: float = 0.3, network: bool = True, sky_matrix=None, output_path=None, energy_options=None, **network_options) -> "Neighborhood":
+        """Create/reuse a point network, or explicitly request legacy yearly exposure."""
         if self._shp is None:
             raise ValueError("Neighborhood.readSHP() must be called before radSimulation().")
+
+        if network:
+            from RAD.network import RadiationNetwork, build_network
+            if radFile is not None:
+                net = RadiationNetwork.load(radFile)
+                net.assert_current(self, energy_options)
+                # V8.1 restores absorption at opaque-to-IR window exterior nodes.
+                ignore = bool(network_options.pop('ignore_window_longwave', False))
+                changed = net.meta.get('ignore_window_longwave', False) != ignore
+                net.meta['ignore_window_longwave'] = ignore
+                if changed:
+                    net.longwave[:] = 0
+                    net.current[:, 2] = 0
+                    net.meta['longwave_updates'] = 0
+                if output_path is not None:
+                    net.save(output_path)
+            else:
+                if sky_matrix is None:
+                    from RAD.sky import build_portable_sky
+                    if epwFile is None and self._epw is None:raise ValueError('Provide EPW or sky_matrix to build a RAD network')
+                    source = Path(epwFile or self._epw)
+                    sky_path = Path(output_path).with_suffix('.sky.npy') if output_path else Path(self._shp).with_suffix('.sky.npy')
+                    sky_path.parent.mkdir(parents=True, exist_ok=True)
+                    build_portable_sky(source, sky_path)
+                    self._mtx = str(sky_path.resolve())
+                    sky_matrix = np.load(sky_path)
+                elif isinstance(sky_matrix, (str, Path)):
+                    self._mtx = str(Path(sky_matrix).resolve())
+                    sky_matrix = np.load(sky_matrix)
+                net = build_network(self, sky_matrix, sample=sample, options=energy_options, **network_options)
+                target = output_path or Path(self._shp).with_suffix('.network.rad.npz')
+                net.save(target)
+            self._radiation_network = net
+            self._rad = net.path
+            for climate in self.climate:
+                climate.solarBuilding = None
+            return self
 
         for climate in self.climate:
             climate.solarBuilding = None
@@ -639,6 +686,14 @@ class Neighborhood:
         if self._shp is None or self._rad is None:
             raise ValueError("Neighborhood.readSHP() and Neighborhood.radSimulation() must be called before solar schedules are processed.")
 
+        if self._radiation_network is None and Path(self._rad).suffix=='.npz':
+            with np.load(self._rad, allow_pickle=False) as cache:
+                if 'protocol' in cache and str(cache['protocol'])=='cetus-rad-network-8':
+                    self.radSimulation(radFile=self._rad)
+        if self._radiation_network is not None:
+            self._radiation_network.assert_current(self)
+            # New Energy consumes W/m2 directly at its start; no yearly .sch IO.
+            return self
         # Always recompute from current WWR, including after sampleInstance().
         for climate in self.climate:
             climate.solarBuilding = None
@@ -687,7 +742,7 @@ class Neighborhood:
         return self
 
     def processRad(self, radFile: str | Path | None = None) -> "Neighborhood":
-        """Merge reusable RAD schedules and refresh UHI solar gains using current WWR."""
+        """Validate a frozen point network, or attach legacy radiation schedules."""
         if radFile is not None:
             self._rad = str(Path(radFile).resolve())
         return self._processRad()
@@ -695,6 +750,9 @@ class Neighborhood:
     def uhiSimulation(self, *, energy_model=None, energy_kwargs=None, **kwargs):
         """Run UHI for all daily ClimateInfo objects and write temperatures back."""
         self.syncSiteGFA()
+        if self._radiation_network is not None:
+            if energy_model is None:energy_model="v7"
+            if energy_model not in ("surface", "v7"):raise ValueError("Point RAD network requires Energy v7")
         if energy_model not in (None, "steady", "surface", "v7"):
             raise ValueError("energy_model must be None, steady, surface or v7")
         if energy_model is None and energy_kwargs is not None:

@@ -429,6 +429,12 @@ class BuildingInstance:
     LightingHeatGain: float | str = 0.0
     InfiltrationACH: float = 0.0
     NightVentilationACH: float = 0.0
+    WallReflectance: float = .26
+    RoofReflectance: float = .26
+    WindowReflectance: float | None = None
+    WallEmissivity: float = .9
+    RoofEmissivity: float = .9
+    WindowEmissivity: float = .84
     wwr: float = 0.5
     shapeFactor: float = 0.0
     multipler: float = 0.0
@@ -849,7 +855,7 @@ class BuildingInstance:
         geometry: Any,
         height: float,
         StoryHeight: float = 4.0,
-        wwr: float = 0.5,
+            wwr: float = 0.5,
     ) -> "BuildingInstance":
         """Update geometry fields from a shapely footprint and building height."""
         if geometry is None:

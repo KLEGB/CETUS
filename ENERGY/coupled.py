@@ -80,19 +80,34 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
     hoy=np.concatenate([np.asarray(c.HOY,dtype=int) for c in climates])
     if np.any(np.diff(hoy)!=1):
         raise ValueError('Coupled weather must be consecutive; carry state across contiguous days')
-    rad=_radiation(neighborhood,climates)
+    net=getattr(neighborhood,'_radiation_network',None)
+    if net is None and neighborhood._rad and Path(neighborhood._rad).is_file() and Path(neighborhood._rad).suffix=='.npz':
+        with np.load(neighborhood._rad,allow_pickle=False) as cache:
+            if 'protocol' in cache and str(cache['protocol'])=='cetus-rad-network-8':
+                neighborhood.radSimulation(radFile=neighborhood._rad)
+                net=neighborhood._radiation_network
+    if net is not None:
+        if options is None:options=copy.deepcopy(net.meta.get('energy_options',{}))
+        net.assert_current(neighborhood,options)
+        solar=net.solar(hoy)
+        rad=None
+    else:
+        rad=_radiation(neighborhood,climates)
     templates=[];audits=[]
-    for c in climates:
+    for day_index,c in enumerate(climates):
         daily=[]
         for b,building in enumerate(neighborhood.buildings):
             irr=None if rad is None else {'facade':sum(rad[k][b,c.HOY] for k in ('N','W','S','E'))/4,
                                         'roof':rad['T'][b,c.HOY]}
+            if net is not None:
+                irr={'facade':solar[2*b,day_index*24:(day_index+1)*24],
+                     'roof':solar[2*b+1,day_index*24:(day_index+1)*24]}
             payload,audit=build_surface_input(building,c,irradiance=irr,options=options)
             daily.append(payload)
             if len(templates)==0:audits.append(audit)
         templates.append(daily)
     signature_data={'buildings':[{k:v for k,v in p.items() if k not in {'hours','initial_c'}} for p in templates[0]],
-                    'site':site.to_dict(),'setting':setting.to_dict()}
+                    'site':site.to_dict(),'setting':setting.to_dict(),'radiation':net.meta['optical_signature'] if net is not None else None}
     signature=hashlib.sha256(json.dumps(signature_data,sort_keys=True,allow_nan=False).encode()).hexdigest()
     if initial_state is not None:
         if preheat:
@@ -111,6 +126,7 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
     ground_area=site.AreaGround+site.AreaRoad
     eps=np.array([(setting.EmiGround*site.AreaGround+setting.EmiRoad*site.AreaRoad)/ground_area if ground_area else 0,
                   setting.EmiLandscape,setting.EmiWater],float)
+    if net is not None:eps[:]=net.meta['ground_emissivity']
     vapor_site=copy.deepcopy(site)
     vapor_site.greenRoofPercentage=0.0  # roofs migrated; no duplicate green-roof source
     all_rows=[];building_rows=[[] for _ in neighborhood.buildings]
@@ -131,7 +147,7 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
             for j,name in enumerate(NAMES):
                 c.Tg_split[name][h-1]=old['ground_c'][j]
                 c.QS[name][h-1]=old['last_shortwave'][j]
-            short=_shortwave(c,h,site,setting)
+            short=np.full(3,(1-net.meta['ground_reflectance'])*solar[-1,int(np.flatnonzero(hoy==int(c.HOY[h]))[0])]) if net is not None else _shortwave(c,h,site,setting)
             for j,name in enumerate(NAMES):c.QS[name][h]=short[j]
             base=[{**p,'hours':[copy.deepcopy(p['hours'][h])]} for p in models]
             for b,p in enumerate(base):
@@ -145,6 +161,10 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
             pressure=float(c.Pressure[h]);tb=float(c.Tb[h]);skyir=base[0]['hours'][0]['sky_ir_w_m2']
             traffic=(setting.annualDistance*setting.FE*setting.fuelDensity*setting.NHC/365/24/3600
                      *site.AreaRoad*setting.intensity/area)
+            radiation_temperatures=old.get('radiation_surface_c')
+            if net is not None and radiation_temperatures is None:
+                radiation_temperatures=[{s['name']:old['air_c'] for s in p['surfaces']} for p in base]
+            radiation_iterations=0
             def evaluate(x, trial=False):
                 ta=float(x[0]);tg=np.asarray(x[1:],float)
                 if not np.isfinite(x).all() or min(x)<=-100 or max(x)>=180:
@@ -152,6 +172,9 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                 ground=float(weights@tg)
                 for p in base:
                     p['hours'][0]['air_c']=ta;p['hours'][0]['ground_c']=ground
+                if net is not None:
+                    ir,ground_ir,emission,incoming=net.longwave_boundary(base,radiation_temperatures,list(zip(weights,tg)),skyir,ta)
+                    for p,boundary in zip(base,ir):p['hours'][0]['network_ir_w_m2']=boundary
                 if trial:
                     totals=engine.trial(base)
                     building=None
@@ -165,7 +188,7 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                 ground_input=paired/exposed
                 hc=np.array([combinedConvectionCoefficient(float(t),ta,pressure,ref,setting.c1,setting.zRef,setting.z0) for t in tg])
                 sensible=hc*(tg-ta)
-                lw=eps*site.SVF*(skyir-SIGMA*(tg+273.15)**4)
+                lw=eps*(ground_ir-SIGMA*(tg+273.15)**4) if net is not None else eps*site.SVF*(skyir-SIGMA*(tg+273.15)**4)
                 c.Ta[h]=ta
                 vapor=float(vaporHeatFlowIntensity(h,c,vapor_site,setting))
                 canopy=combinedConvectionCoefficient(tb,ta,pressure,float(c.Velocity[h]),setting.c1,setting.zRefd,setting.z0d)*(ta-tb)
@@ -184,14 +207,27 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                 nonlocal count
                 count+=1
                 return evaluate(x,trial=True)[0]
-            solution=root(fun,np.r_[old['air_c'],old['ground_c']],options={'xtol':1e-8,'maxfev':max_evaluations})
-            residual,data=evaluate(solution.x)
-            if np.max(np.abs(residual))>balance_tolerance_w_m2:
-                raise RuntimeError(f'Unconverged HOY {c.HOY[h]}: {residual.tolist()}; {solution.message}')
+            guess=np.r_[old['air_c'],old['ground_c']]
+            for radiation_iterations in range(1,51 if net is not None else 2):
+                solution=root(fun,guess,options={'xtol':1e-8,'maxfev':max_evaluations})
+                residual,data=evaluate(solution.x)
+                if np.max(np.abs(residual))>balance_tolerance_w_m2:
+                    raise RuntimeError(f'Unconverged HOY {c.HOY[h]}: {residual.tolist()}; {solution.message}')
+                if net is None:break
+                updated=[{s['name']:s['exterior_c'] for s in b['hours'][0]['surfaces']} for b in data['building']]
+                new_ir,new_ground_ir,E,incoming=net.longwave_boundary(base,updated,list(zip(weights,solution.x[1:])),skyir,float(solution.x[0]))
+                old_ir=[p['hours'][0]['network_ir_w_m2'] for p in base]
+                radiation_error=max(max(abs(np.asarray(a)-b)) for a,b in zip(new_ir,old_ir))
+                net.refresh(int(c.HOY[h]),E)
+                if radiation_error<=.01:break
+                radiation_temperatures=[{k:.3*a[k]+.7*b[k] for k in a} for a,b in zip(radiation_temperatures,updated)]
+                guess=solution.x
+            else:raise RuntimeError(f'Longwave exchange failed at HOY {c.HOY[h]}: {radiation_error} W/m2')
             ta=float(solution.x[0]);tg=solution.x[1:]
             next_state={'air_c':ta,'ground_c':tg.tolist(),
                 'buildings':[b['final_state'] for b in data['building']],
                 'last_hoy':int(c.HOY[h]),'last_shortwave':short.tolist(),'signature':signature}
+            if net is not None:next_state['radiation_surface_c']=updated
             total_res=float(residual[0]+fractions@residual[1:])+sum(b['hours'][0]['balance_residual_w'] for b in data['building'])/area
             row={'hoy':int(c.HOY[h]),'Tair':ta,'Tsurface':float(weights@tg),'Tambient':tb,
                  'QS':float(fractions@short),'QL':float(fractions@data['lw']),
@@ -202,6 +238,25 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                  'evaluations':count,'canopy_to_background_w_m2':data['canopy'],
                  'air_storage_w_m2':data['air_storage'],'ground_storage_w_m2':float(fractions@data['ground_storage']),
                  'ground_to_deep_w_m2':float(fractions@data['conduction'])}
+            if net is not None:
+                group_direct=net.aggregate(net.direct[:,net.lookup[int(c.HOY[h])]])
+                group_reflected=net.aggregate(net.reflected[:,net.lookup[int(c.HOY[h])]])
+                ignored=0.;absorbed_pair=0.;building_net_lw=0.
+                for b,p in enumerate(base):
+                    building_net_lw+=data['building'][b]['hours'][0]['longwave_to_network_w']
+                    for face in p['surfaces']:
+                        if face['kind']=='floor':continue
+                        g=2*b+int(face['kind'] in ('roof','skylight'))
+                        absorbed=face['area_m2']*face['emissivity']*incoming[g]
+                        if face['kind'] in ('window','skylight') and net.meta['ignore_window_longwave']:ignored+=absorbed
+                        else:absorbed_pair+=absorbed
+                absorbed_pair+=net.group_area[-1]*eps[0]*incoming[-1]
+                sent_pair=float(np.sum(net.group_area*E*net.view_sum))
+                row.update(radiation_iterations=radiation_iterations,radiation_error_w_m2=radiation_error,
+                    ground_primary_sw_w_m2=float(group_direct[-1]),ground_reflected_sw_w_m2=float(group_reflected[-1]),
+                    ignored_window_lw_w=ignored,longwave_pair_received_w=sent_pair,
+                    radiation_exchange_residual_w_m2=float((building_net_lw+net.group_area[-1]*eps[0]*(sum(w*SIGMA*(t+273.15)**4 for w,t in zip(weights,tg))-(incoming[-1]+net.group_sky[-1]*skyir+net.far[-1]*SIGMA*(ta+273.15)**4))-np.sum(net.group_area*(E*(1-net.view_sum)-(net.group_sky*skyir+net.far*SIGMA*(ta+273.15)**4)))-ignored)/area),
+                    building_net_lw_w=building_net_lw)
             for j,name in enumerate(NAMES):
                 row['Tg'+name.title()]=float(tg[j]);row['Ta'+name.title()]=ta
                 c.Tg_split[name][h]=tg[j];c.Ta_split[name][h]=ta
@@ -234,11 +289,14 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
             for h in range(24):
                 state,row,outs=step(c,h,templates[day],state)
                 all_rows.append(row)
+                if show_progress and h%6==0:print(f'HOY {int(c.HOY[h])}: LW iterations={row.get("radiation_iterations",1)}, residual={row["max_residual_w_m2"]:.3g} W/m2',flush=True)
                 for b,out in enumerate(outs):building_rows[b].append(out)
             if show_progress:print(f'Coupled day {day+1}/{len(climates)} complete',flush=True)
     # Write state/output before committing caller objects, so failed persistence is explicit.
+    if net is not None:
+        net.save()
     metadata={'engine':'cetus-surface-7-reconstructed','exposed_fractions':dict(zip(NAMES,fractions.tolist())),
-        'warmup':warmup_history,'final_state':state,'assumptions':audits[0],
+        'warmup':warmup_history,'final_state':state,'assumptions':audits[0],'radiation_network':net.meta if net is not None else None,
         'green_roofs':'Green-roof evaporation is disabled in this coupled path; no roof moisture model.',
         'ground_receiver':'Area-weighted exposed ground temperature used by buildings; returned ground exchanges distributed by exposed area.',
         'latent':'Existing UHI evaporation remains a prescribed canopy sensible-energy sink; humidity is not prognostic.'}

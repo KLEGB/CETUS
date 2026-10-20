@@ -6,7 +6,7 @@ rasterio
 # Preprocess utilities
 pandas
 geopandas
-shapely
+shapely>=2.1
 pyproj
 psutil
 optuna
