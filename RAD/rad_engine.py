@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import subprocess
+import os
+import platform
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -17,13 +20,20 @@ from RAD.solar_geometry import BuildingMesh
 
 MODULE_DIR = Path(__file__).resolve().parent
 RAD_BIN_DIR = MODULE_DIR / "bin" / "rad"
-MOOSAS_RAD_EXE = RAD_BIN_DIR / "MoosasRad.exe"
+MOOSAS_RAD_EXE = RAD_BIN_DIR / ("MoosasRad.exe" if platform.system() == "Windows" else "MoosasRad")
 
 
 def ensure_local_rad_binary() -> None:
-    """Fail early when the local MoosasRad executable is not available."""
+    """Build the native ray engine when needed; preserve the Windows binary."""
+    source = RAD_BIN_DIR / "MoosasRad.go"
+    if platform.system() != "Windows" and (not MOOSAS_RAD_EXE.exists() or source.stat().st_mtime > MOOSAS_RAD_EXE.stat().st_mtime):
+        compiler = os.environ.get("CETUS_GO") or shutil.which("go")
+        if not compiler:
+            raise RuntimeError("Go 1.22+ is required to build the native RAD engine")
+        subprocess.run([compiler, "build", "-o", str(MOOSAS_RAD_EXE), str(source)],
+                       check=True, capture_output=True, timeout=120)
     if not MOOSAS_RAD_EXE.exists():
-        raise FileNotFoundError(f"RAD local ray engine is missing: {MOOSAS_RAD_EXE}")
+        raise FileNotFoundError(MOOSAS_RAD_EXE)
 
 
 def _geo_face_block(face_id: str, normal: np.ndarray, loop: np.ndarray) -> str:

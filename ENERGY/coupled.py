@@ -1,0 +1,268 @@
+"""Hourly conservative coupling of Energy v7 with CETUS UHI ground/canopy physics.
+
+All root evaluations use the same previous physical hour. Only a converged
+root can advance state. Exposed fractions deliberately sum to <1 when roofs
+occupy land: roofs have no duplicate UHI radiation, storage or convection.
+"""
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+from pathlib import Path
+
+import numpy as np
+from scipy.optimize import root
+
+from UHI.aT import airDensity, combinedConvectionCoefficient, referenceVelocity
+from UHI.shortwave import solarRadiationTime
+from UHI.vapor import vaporHeatFlowIntensity
+from .surface import SurfaceEngine, build_surface_input, SIGMA
+
+NAMES = ('ground','land','water')
+
+
+def _fractions(site):
+    areas=np.array([site.AreaGround+site.AreaRoad,site.AreaLandscape,site.AreaWater],dtype=float)
+    if not np.isfinite(areas).all() or np.any(areas<0) or site.TotalArea<=0:
+        raise ValueError('Invalid exposed areas')
+    total=float(areas.sum()+site.AreaBuilding)
+    if not np.isclose(total,site.TotalArea,rtol=1e-5,atol=1):
+        raise ValueError('Site areas must sum to TotalArea before roof migration')
+    if areas.sum()<=0:
+        raise ValueError('Coupled ground receiver requires exposed ground')
+    return areas/float(site.TotalArea)
+
+
+def _radiation(neighborhood, climates):
+    if neighborhood._rad is None:
+        return None
+    from RAD.workflow import prepare_buildings,read_radiation_intensities
+    gdf=prepare_buildings(Path(neighborhood._shp),'index',neighborhood._height_field)
+    values=read_radiation_intensities(neighborhood._rad,gdf,height_field=neighborhood._height_field)
+    if len(gdf)!=len(neighborhood.buildings):
+        raise ValueError('RAD inventory differs from Energy inventory')
+    return values
+
+
+def _shortwave(c,h,site,setting):
+    incident=solarRadiationTime(float(c.RadTotal[h]),float(c.RadDiffuse[h]),site.SVF,
+        site.SDL,site.SDG,site.SRTL,site.SRTG,site.fPSA,site.CL,site.CG)
+    ground=site.AreaGround+site.AreaRoad
+    alpha=(setting.AbsoGround*site.AreaGround+setting.AbsoRoad*site.AreaRoad)/ground if ground else 0
+    # Raw incident solar: ground heat capacity supplies the temporal response.
+    return incident*np.array([alpha,setting.AbsoLandscape,setting.AbsoWater])
+
+
+def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_state=None,
+                     preheat=4, max_preheat=120, warmup_tolerance_k=.02,
+                     balance_tolerance_w_m2=.02, max_evaluations=120,
+                     executable_path=None, show_progress=True, warmup_checkpoint=None):
+    """Return legacy-shaped hourly results plus explicit fluxes and restart state.
+
+    preheat is a minimum count, max_preheat a hard limit. On a restart preheat
+    must be zero. One repeatable first-day cycle is used only at sequence start.
+    Multi-day gaps are rejected. Failures leave the caller's climates unchanged.
+    """
+    if not neighborhood.buildings or not neighborhood.climate:
+        raise ValueError('Initialize buildings and weather first')
+    if balance_tolerance_w_m2<=0 or warmup_tolerance_k<=0 or max_evaluations<1:
+        raise ValueError('Invalid convergence parameters')
+    preheat=int(preheat);max_preheat=int(max_preheat)
+    if preheat<0 or max_preheat<preheat:
+        raise ValueError('Invalid warmup limits')
+    climates=copy.deepcopy(neighborhood.climate)
+    site,setting=neighborhood.site,neighborhood.setting
+    if setting.dt is None or float(setting.dt)!=3600:
+        raise ValueError('Hourly coupling requires setting.dt=3600 seconds')
+    fractions=_fractions(site);exposed=float(fractions.sum());area=float(site.TotalArea)
+    weights=fractions/exposed
+    hoy=np.concatenate([np.asarray(c.HOY,dtype=int) for c in climates])
+    if np.any(np.diff(hoy)!=1):
+        raise ValueError('Coupled weather must be consecutive; carry state across contiguous days')
+    rad=_radiation(neighborhood,climates)
+    templates=[];audits=[]
+    for c in climates:
+        daily=[]
+        for b,building in enumerate(neighborhood.buildings):
+            irr=None if rad is None else {'facade':sum(rad[k][b,c.HOY] for k in ('N','W','S','E'))/4,
+                                        'roof':rad['T'][b,c.HOY]}
+            payload,audit=build_surface_input(building,c,irradiance=irr,options=options)
+            daily.append(payload)
+            if len(templates)==0:audits.append(audit)
+        templates.append(daily)
+    signature_data={'buildings':[{k:v for k,v in p.items() if k not in {'hours','initial_c'}} for p in templates[0]],
+                    'site':site.to_dict(),'setting':setting.to_dict()}
+    signature=hashlib.sha256(json.dumps(signature_data,sort_keys=True,allow_nan=False).encode()).hexdigest()
+    if initial_state is not None:
+        if preheat:
+            raise ValueError('Restart requires preheat=0')
+        state=copy.deepcopy(initial_state)
+        if state.get('signature')!=signature or state.get('last_hoy')!=int(hoy[0])-1:
+            raise ValueError('Restart configuration or HOY differs')
+        if len(state['buildings'])!=len(neighborhood.buildings):
+            raise ValueError('Restart inventory differs')
+    else:
+        state={'air_c':float(climates[0].Tb[0]),'ground_c':[float(climates[0].Tb[0])]*3,
+               'buildings':[None]*len(neighborhood.buildings),'last_hoy':int(hoy[0])-1,
+               'last_shortwave':[0.0]*3,'signature':signature}
+    capacities=np.array([setting.CGround,setting.CLand,setting.CWater],float)
+    deep=np.array([setting.UDeepGround,setting.UDeepLand,setting.UDeepWater],float)
+    ground_area=site.AreaGround+site.AreaRoad
+    eps=np.array([(setting.EmiGround*site.AreaGround+setting.EmiRoad*site.AreaRoad)/ground_area if ground_area else 0,
+                  setting.EmiLandscape,setting.EmiWater],float)
+    vapor_site=copy.deepcopy(site)
+    vapor_site.greenRoofPercentage=0.0  # roofs migrated; no duplicate green-roof source
+    all_rows=[];building_rows=[[] for _ in neighborhood.buildings]
+    warmup_history=[]
+    if warmup_checkpoint is not None:
+        if initial_state is not None or not preheat:
+            raise ValueError('Warmup checkpoint requires preheat and no production restart')
+        saved=json.loads(Path(warmup_checkpoint).read_text())
+        candidate=saved['state']
+        if candidate.get('signature')!=signature or candidate.get('last_hoy')!=int(hoy[0])+23:
+            raise ValueError('Warmup checkpoint configuration or forcing day differs')
+        state=copy.deepcopy(candidate);warmup_history=copy.deepcopy(saved['history'])
+    with SurfaceEngine(executable_path) as engine:
+        engine.configure(templates[0])
+        def step(c,h,models,old):
+            # Preserve previous-hour UHI state even at midnight and during root trials.
+            c.Ta[h-1]=old['air_c']
+            for j,name in enumerate(NAMES):
+                c.Tg_split[name][h-1]=old['ground_c'][j]
+                c.QS[name][h-1]=old['last_shortwave'][j]
+            short=_shortwave(c,h,site,setting)
+            for j,name in enumerate(NAMES):c.QS[name][h]=short[j]
+            base=[{**p,'hours':[copy.deepcopy(p['hours'][h])]} for p in models]
+            for b,p in enumerate(base):
+                if old['buildings'][b] is not None:p['initial_state']=old['buildings'][b]
+            ref=referenceVelocity(float(c.Velocity[h]),site.kS,setting.a,setting.k)
+            for p in base:
+                for j,surface in enumerate(p['surfaces']):
+                    prescribed=(options or {}).get('surfaces',{}).get(surface['name'],{}).get('ho_w_m2k')
+                    if prescribed is None and surface['kind']!='floor':
+                        p['hours'][0]['ho_w_m2k'][j]=5.8+4.1*ref
+            pressure=float(c.Pressure[h]);tb=float(c.Tb[h]);skyir=base[0]['hours'][0]['sky_ir_w_m2']
+            traffic=(setting.annualDistance*setting.FE*setting.fuelDensity*setting.NHC/365/24/3600
+                     *site.AreaRoad*setting.intensity/area)
+            def evaluate(x, trial=False):
+                ta=float(x[0]);tg=np.asarray(x[1:],float)
+                if not np.isfinite(x).all() or min(x)<=-100 or max(x)>=180:
+                    raise RuntimeError('Coupling root left physical temperature bracket')
+                ground=float(weights@tg)
+                for p in base:
+                    p['hours'][0]['air_c']=ta;p['hours'][0]['ground_c']=ground
+                if trial:
+                    totals=engine.trial(base)
+                    building=None
+                    air=totals['air_w']/area;paired=totals['ground_w']/area
+                else:
+                    building=engine.request(base,use_models=True)
+                    outs=[b['hours'][0] for b in building]
+                    air=sum(o['convection_to_air_w']+o['ventilation_to_air_w']+o['hvac_to_air_w'] for o in outs)/area
+                    paired=sum(o['longwave_to_ground_w']+o['contact_to_ground_w'] for o in outs)/area
+                # All exposed surface groups receive an equal W/m2 flux; their area-weighted sum is paired.
+                ground_input=paired/exposed
+                hc=np.array([combinedConvectionCoefficient(float(t),ta,pressure,ref,setting.c1,setting.zRef,setting.z0) for t in tg])
+                sensible=hc*(tg-ta)
+                lw=eps*site.SVF*(skyir-SIGMA*(tg+273.15)**4)
+                c.Ta[h]=ta
+                vapor=float(vaporHeatFlowIntensity(h,c,vapor_site,setting))
+                canopy=combinedConvectionCoefficient(tb,ta,pressure,float(c.Velocity[h]),setting.c1,setting.zRefd,setting.z0d)*(ta-tb)
+                air_storage=airDensity(pressure,ta)*1006*setting.HAir*(ta-old['air_c'])/3600
+                ground_storage=capacities*(tg-np.asarray(old['ground_c']))/3600
+                conduction=deep*(tg-setting.GroundTemperature)
+                residual_ground=short+lw+ground_input-sensible-conduction-ground_storage
+                residual_ground=np.where(fractions>0,residual_ground,tg-np.asarray(old['ground_c']))
+                residual_air=float(fractions@sensible)+air+traffic+vapor-canopy-air_storage
+                residual=np.r_[residual_air,residual_ground]
+                return residual,dict(building=building,air=air,paired=paired,short=short,lw=lw,
+                    vapor=vapor,traffic=traffic,canopy=canopy,air_storage=air_storage,
+                    ground_storage=ground_storage,conduction=conduction,sensible=sensible)
+            count=0
+            def fun(x):
+                nonlocal count
+                count+=1
+                return evaluate(x,trial=True)[0]
+            solution=root(fun,np.r_[old['air_c'],old['ground_c']],options={'xtol':1e-8,'maxfev':max_evaluations})
+            residual,data=evaluate(solution.x)
+            if np.max(np.abs(residual))>balance_tolerance_w_m2:
+                raise RuntimeError(f'Unconverged HOY {c.HOY[h]}: {residual.tolist()}; {solution.message}')
+            ta=float(solution.x[0]);tg=solution.x[1:]
+            next_state={'air_c':ta,'ground_c':tg.tolist(),
+                'buildings':[b['final_state'] for b in data['building']],
+                'last_hoy':int(c.HOY[h]),'last_shortwave':short.tolist(),'signature':signature}
+            total_res=float(residual[0]+fractions@residual[1:])+sum(b['hours'][0]['balance_residual_w'] for b in data['building'])/area
+            row={'hoy':int(c.HOY[h]),'Tair':ta,'Tsurface':float(weights@tg),'Tambient':tb,
+                 'QS':float(fractions@short),'QL':float(fractions@data['lw']),
+                 'QV':data['vapor'],'QA':data['air']+traffic,
+                 'building_to_air_w_m2':data['air'],'building_to_ground_w_m2':data['paired'],
+                 'building_shortwave_in_uhi_w_m2':0.0,'roof_fraction_in_uhi':0.0,
+                 'total_residual_w_m2':total_res,'max_residual_w_m2':float(np.max(np.abs(residual))),
+                 'evaluations':count,'canopy_to_background_w_m2':data['canopy'],
+                 'air_storage_w_m2':data['air_storage'],'ground_storage_w_m2':float(fractions@data['ground_storage']),
+                 'ground_to_deep_w_m2':float(fractions@data['conduction'])}
+            for j,name in enumerate(NAMES):
+                row['Tg'+name.title()]=float(tg[j]);row['Ta'+name.title()]=ta
+                c.Tg_split[name][h]=tg[j];c.Ta_split[name][h]=ta
+                c.QS[name][h]=short[j];c.QL[name][h]=data['lw'][j]
+                c.QHFlux[name][h]=data['sensible'][j];c.QGFlux[name][h]=data['conduction'][j]
+                c.Qsg[name][h]=data['ground_storage'][j]
+                c.QVFlux[name][h]=-data['canopy'];c.Qsa[name][h]=-data['air_storage']
+            c.Ta[h]=ta;c.Tg[h]=row['Tsurface']
+            return next_state,row,[b['hours'][0] for b in data['building']]
+
+        if initial_state is None and preheat:
+            converged=False
+            for cycle in range(len(warmup_history)+1,max_preheat+1):
+                before=copy.deepcopy(state)
+                for h in range(24):state,_,_=step(climates[0],h,templates[0],state)
+                change=max(abs(state['air_c']-before['air_c']),np.max(np.abs(np.array(state['ground_c'])-before['ground_c'])))
+                if before['buildings'][0] is not None:
+                    change=max(change,max(np.max(np.abs(np.array(a)-b)) for a,b in zip(state['buildings'],before['buildings'])))
+                warmup_history.append({'cycle':cycle,'max_state_change_k':float(change)})
+                if output_dir is not None:
+                    checkpoint=Path(output_dir);checkpoint.mkdir(parents=True,exist_ok=True)
+                    temporary=checkpoint/'warmup_checkpoint.json.tmp'
+                    temporary.write_text(json.dumps({'state':state,'history':warmup_history},allow_nan=False))
+                    temporary.replace(checkpoint/'warmup_checkpoint.json')
+                if show_progress:print(f'Warmup {cycle}: {change:.5f} K',flush=True)
+                if cycle>=preheat and change<=warmup_tolerance_k:
+                    converged=True;break
+            if not converged:raise RuntimeError(f'Warmup did not converge in {max_preheat} cycles')
+        for day,c in enumerate(climates):
+            for h in range(24):
+                state,row,outs=step(c,h,templates[day],state)
+                all_rows.append(row)
+                for b,out in enumerate(outs):building_rows[b].append(out)
+            if show_progress:print(f'Coupled day {day+1}/{len(climates)} complete',flush=True)
+    # Write state/output before committing caller objects, so failed persistence is explicit.
+    metadata={'engine':'cetus-surface-7-reconstructed','exposed_fractions':dict(zip(NAMES,fractions.tolist())),
+        'warmup':warmup_history,'final_state':state,'assumptions':audits[0],
+        'green_roofs':'Green-roof evaporation is disabled in this coupled path; no roof moisture model.',
+        'ground_receiver':'Area-weighted exposed ground temperature used by buildings; returned ground exchanges distributed by exposed area.',
+        'latent':'Existing UHI evaporation remains a prescribed canopy sensible-energy sink; humidity is not prognostic.'}
+    if output_dir is not None:
+        import pandas as pd
+        folder=Path(output_dir);folder.mkdir(parents=True,exist_ok=True)
+        pd.DataFrame(all_rows).to_csv(folder/'hourly.csv',index=False)
+        (folder/'state.json').write_text(json.dumps(state,indent=2,allow_nan=False))
+        (folder/'audit.json').write_text(json.dumps(metadata,indent=2,allow_nan=False))
+        (folder/'building_hourly.json').write_text(json.dumps(building_rows,allow_nan=False,separators=(',',':')))
+    for old,new in zip(neighborhood.climate,climates):
+        for field in old.__slots__:setattr(old,field,copy.deepcopy(getattr(new,field)))
+    for b,rows in zip(neighborhood.buildings,building_rows):
+        b.energyModel='surface-v7';b.energyHOY=hoy.tolist()
+        b.energyFeedback={'surface_v7':rows}
+        b.coolingLoad=np.array([max(-r['hvac_w'],0) for r in rows])
+        b.heatingLoad=np.array([max(r['hvac_w'],0) for r in rows])
+        b.ACLoad=b.coolingLoad-b.heatingLoad
+        b.ACWasteHeat=np.array([r['convection_to_air_w']+r['ventilation_to_air_w']+r['hvac_to_air_w'] for r in rows])
+    for d,c in enumerate(neighborhood.climate):
+        c.ACLoad=sum(b.ACLoad[d*24:(d+1)*24] for b in neighborhood.buildings)
+        c.ACWasteHeat=sum(b.ACWasteHeat[d*24:(d+1)*24] for b in neighborhood.buildings)
+        c.coolingLoad=c.ACWasteHeat/area
+    keys=['QS','QL','QV','QA','Tair','Tsurface','Tambient','TaGround','TaWater','TaLand','TgGround','TgWater','TgLand']
+    result={key:np.array([r[key] for r in all_rows]).reshape(-1,24).T for key in keys}
+    result['coupled']=metadata;result['hourly']=all_rows
+    return result

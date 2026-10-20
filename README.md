@@ -1,3 +1,7 @@
+> **Energy v7 / UHI 逐时耦合重建分支**：使用 `uhiSimulation(energy_model="v7")`。
+> [模型、参数与复现方法](docs/energy_v7_coupling.md) · [本次验证报告](docs/energy_v7_validation.md)。
+> 从既有 main 重建，并非旧交付 ZIP 的逐字恢复。
+
 # CETUS
 
 CETUS combines an urban canopy thermal model (`UHI`), building radiation (`RAD`), and building energy calculation (`ENERGY`). **EPW weather + building-footprint SHP is the recommended input combination**: it retains the geometry, solar exposure, and building properties needed for thermal–energy feedback studies. CSV and Raster provide alternative interfaces for prescribed urban-model inputs.

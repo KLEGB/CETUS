@@ -360,6 +360,19 @@ class Neighborhood:
                     tif_kwargs["AreaWater"] = float(fwc) * total_area
             self.site = SiteInfo.fromTIF(tif_path, **tif_kwargs)
 
+        # Explicit cover overrides must consume the remaining open-space budget.
+        # The raster reader otherwise retains road/ground areas from its default covers.
+        if fvc is not None or fwc is not None:
+            remaining = self.site.TotalArea - self.site.AreaBuilding - self.site.AreaLandscape - self.site.AreaWater
+            if remaining < 0:
+                raise ValueError("Building, landscape and water areas exceed site area")
+            old_open = self.site.AreaRoad + self.site.AreaGround
+            road_fraction = self.site.AreaRoad / old_open if old_open > 0 else 0.5
+            self.site.AreaRoad = remaining * road_fraction
+            self.site.AreaGround = remaining * (1.0 - road_fraction)
+            self.site.AreaTreeShading = self.site.AreaLandscape
+            self.site.SDL = self.site.AreaLandscape / self.site.TotalArea
+
 
         gdf = gpd.read_file(shp_path)
         if height_field not in gdf.columns:
@@ -682,8 +695,8 @@ class Neighborhood:
     def uhiSimulation(self, *, energy_model=None, energy_kwargs=None, **kwargs):
         """Run UHI for all daily ClimateInfo objects and write temperatures back."""
         self.syncSiteGFA()
-        if energy_model not in (None, "steady"):
-            raise ValueError("uhiSimulation energy_model must be 'steady' or None")
+        if energy_model not in (None, "steady", "surface", "v7"):
+            raise ValueError("energy_model must be None, steady, surface or v7")
         if energy_model is None and energy_kwargs is not None:
             raise ValueError("energy_kwargs requires energy_model='steady'")
         settings_kwargs = dict(kwargs)
@@ -692,6 +705,12 @@ class Neighborhood:
             if not hasattr(self.setting, key):
                 raise AttributeError(f"settingInfo has no attribute '{key}'")
             setattr(self.setting, key, value)
+
+        if energy_model in ("surface", "v7"):
+            from ENERGY.coupled import simulate_coupled
+            coupled_kwargs = dict(energy_kwargs or {})
+            coupled_kwargs.setdefault("preheat", preheat)
+            return simulate_coupled(self, **coupled_kwargs)
 
         if energy_model == "steady":
             self.energySimulationSteady(**(energy_kwargs or {}))

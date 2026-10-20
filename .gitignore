@@ -141,3 +141,10 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+# Reproducible surface/UHI runs and platform builds
+/outputs/coupled_*/
+/outputs/radiation/
+/outputs/weather/
+/ENERGY/bin/CetusSurfaceEnergy*
+/RAD/bin/rad/MoosasRad

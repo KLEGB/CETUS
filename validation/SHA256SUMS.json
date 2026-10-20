@@ -1,0 +1,19 @@
+{
+  "ashrae_recovered/R5_case600.json.gz": "f27d376e18b959f4fa95e6dc9fd7531ca13c0cd9a9743a1e33c9d22c78db0088",
+  "ashrae_recovered/R5_case660.json.gz": "f0636273c8695dff3f8c900023a4f028929598eed332541d4aba399f49df0dce",
+  "ashrae_recovered/R5_case670.json.gz": "e9d0e070186304ab49655e483c5d141298da9e794f6a3b62c8b0944c23631841",
+  "ashrae_recovered/R5_case680.json.gz": "1837f0f6ca70876216880ebc957032d19e6d943fd6dff71b6a1bd8715907320a",
+  "ashrae_recovered/reference_july14.csv": "585712dad5251f053d1319ff67ead15eb396712f1193819c0f4c4e0a693cc73d",
+  "coupled_case/archetype_parameters.csv": "b474c9bc8514591a3138e82c3cc13772186ab0633645163f8c53d89fc5381938",
+  "coupled_case/hourly.csv": "cf62434cfdf0e4bd9b9245234129e47ffcbb42c345746ab9122efd0b8bdea7ce",
+  "coupled_case/restart_state.json.gz": "b2d6283b5f5171fe918bae3bee4ae36ac74bb163a6a704549211affa458432c5",
+  "coupled_case/summary.json": "9380d5a0f99b99bf4bc5a5522cf9472282658ae33801ae2d589d3a746f397371",
+  "coupled_input/53695_3092_LCZ1_2B.zip": "959bf469dbc20cce63590755f1312aff236a666d3621af0f895fe1d693970f0c",
+  "rebuilt_results/case600_input.json.gz": "b6643639ee55bd81ae69fef2c5c250b7d6be006dcb15b0076f3a27768147771c",
+  "rebuilt_results/case660_input.json.gz": "1a697d5d4f0cc2b4e0bc239d9d7ecb0c44283b8e9ca1d03d9e4af6ef4d04d688",
+  "rebuilt_results/case670_input.json.gz": "e67af15c90037507e880284d85def540bdfb7c8e1e33ce4961502bbd66b42aac",
+  "rebuilt_results/case680_input.json.gz": "f71ff72108d3350608da6f50b5fa8131dd665993a7395923b337d6d7b1c75048",
+  "rebuilt_results/comparison.png": "4c0101c8bdcef64faf925cd2aa12e61cec600dc8ac22f79244f6c10c0087d9d3",
+  "rebuilt_results/hourly.csv": "f021646223fcf7f24a37c27f01cb1ceb88dc2796efb04babca2913e0d39162f2",
+  "rebuilt_results/metrics.csv": "369cc5101aefd03a260940f2f4fc23add1fc47de1560963e3aad497d25e70774"
+}

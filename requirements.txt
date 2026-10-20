@@ -10,3 +10,6 @@ shapely
 pyproj
 psutil
 optuna
+
+# Conservative hourly surface/UHI coupling
+scipy
