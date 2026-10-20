@@ -1,0 +1,346 @@
+{
+  "version": "8.2",
+  "source_commit": "14702dc081ef1ed93bdc6727b96a2cb1e062f5be",
+  "files": {
+    "CETUS/ENERGY/__init__.py": {
+      "bytes": 788,
+      "sha256": "5c5832de4ab80b7b1e0037a15fb57655c19e0a81154a35b0e052309649352679"
+    },
+    "CETUS/ENERGY/bin/CetusSurfaceEnergy": {
+      "bytes": 2847127,
+      "sha256": "535315ba91fff4254f1b7c932f512b2f1fa23f7928d411eadc9bc3e7905fd2d0"
+    },
+    "CETUS/ENERGY/bin/CetusSurfaceEnergy.exe": {
+      "bytes": 2966016,
+      "sha256": "41af4534cab8bdd54fb3c14cc48a9f4537be06937eb114aa3336db720a527c61"
+    },
+    "CETUS/ENERGY/bin/CetusSurfaceEnergy.exe.sha256": {
+      "bytes": 65,
+      "sha256": "ccd56f9a069f17d3bd52157f7cbb0b9377354ce09d88fe8322ef0459169e537e"
+    },
+    "CETUS/ENERGY/bin/CetusSurfaceEnergy.sha256": {
+      "bytes": 65,
+      "sha256": "ccd56f9a069f17d3bd52157f7cbb0b9377354ce09d88fe8322ef0459169e537e"
+    },
+    "CETUS/ENERGY/bin/Energy-Readme.md": {
+      "bytes": 12061,
+      "sha256": "1248cdc332ebb9264d012103985d03ad220aac71f2514ecf68f541ccdce445e0"
+    },
+    "CETUS/ENERGY/bin/MoosasEnergy": {
+      "bytes": 2580507,
+      "sha256": "ae29c8c5d7df6f51379e994e90d71093e936ec0fd95d3e70871f579b6fb03923"
+    },
+    "CETUS/ENERGY/bin/MoosasEnergy-legacy": {
+      "bytes": 2291460,
+      "sha256": "39ab7793a5482efaefac67303b9d24d593b9cc3b2a0a2030b247f3108cbace05"
+    },
+    "CETUS/ENERGY/bin/MoosasEnergy-legacy.exe": {
+      "bytes": 2357760,
+      "sha256": "b3d72c8617d33ca72a92a3e29f4dfeb4c7f9be5e0a4c827de8804a95493e9a62"
+    },
+    "CETUS/ENERGY/bin/MoosasEnergy-new.go": {
+      "bytes": 13497,
+      "sha256": "6ddc928bc66065e33bc2d341c6dfdd4287c16fe5b2ae44762d9eab897b676f45"
+    },
+    "CETUS/ENERGY/bin/MoosasEnergy-steady.exe": {
+      "bytes": 2568192,
+      "sha256": "b1fe182d44d00b6877d28ed575b44b00dbf3e7ccca2ba95effc8ced8727be856"
+    },
+    "CETUS/ENERGY/bin/MoosasEnergy.exe": {
+      "bytes": 2695168,
+      "sha256": "d8c04ea078c97f890744b3bb42832c05c73b95c0e33b5a6e8ca17cd5026cfeb4"
+    },
+    "CETUS/ENERGY/bin/MoosasEnergy.go": {
+      "bytes": 86651,
+      "sha256": "fa7687a85034a25f90ce34ca9dbe0731d4e9172317a4c64bd8cc416345f85652"
+    },
+    "CETUS/ENERGY/bin/README.md": {
+      "bytes": 14449,
+      "sha256": "15b307aa77a8efd33c839dec6b893769352ed516e099175a07631a1a2ed2293c"
+    },
+    "CETUS/ENERGY/coupled.py": {
+      "bytes": 23973,
+      "sha256": "b35d4dd81aaaf6faa46464a66d7f84f0b51a3bd067118e08a1b585990ab38b2b"
+    },
+    "CETUS/ENERGY/data/archetype/building_template.csv": {
+      "bytes": 8327,
+      "sha256": "bf2cabf2979738f4c7d813943c81f2463317c285b8d3fa1bb26b0fafdc75f843"
+    },
+    "CETUS/ENERGY/data/archetype/mean.csv": {
+      "bytes": 2604,
+      "sha256": "354c8e3df1c515a1455e2b293674589881d83ca5cb0700721cdca0a98996947d"
+    },
+    "CETUS/ENERGY/data/archetype/std.csv": {
+      "bytes": 2613,
+      "sha256": "9df99927121d34e54ec79d315cdd7bb1adbeb7d02ac1afbe050ebc8e2e6adcd1"
+    },
+    "CETUS/ENERGY/data/schedule/commercial.sch": {
+      "bytes": 2118,
+      "sha256": "0a60d5e029c531ea92cbd00933451cd5871aea6188104fbc36bf0046abf79b1d"
+    },
+    "CETUS/ENERGY/data/schedule/hotel.sch": {
+      "bytes": 2014,
+      "sha256": "3736f009fe3ef8f00f9d271c1050f8d680d53beae254befd05f176e7f4fb8c3a"
+    },
+    "CETUS/ENERGY/data/schedule/medical.sch": {
+      "bytes": 2057,
+      "sha256": "ad78102b1ebbd9ad529e3dd6afcf3c78e52947f5885cf3000d75c6be336809a1"
+    },
+    "CETUS/ENERGY/data/schedule/office.sch": {
+      "bytes": 2037,
+      "sha256": "db93edc18325c9167a5d666797619233cc99bd5708f46003ddb35022c08f08fd"
+    },
+    "CETUS/ENERGY/data/schedule/residential.sch": {
+      "bytes": 2316,
+      "sha256": "54e75e442786faf37d6e05a7a7380422ac46a319e9b30ed592b3d36bfe1524c3"
+    },
+    "CETUS/ENERGY/data/schedule/school.sch": {
+      "bytes": 2056,
+      "sha256": "d18442f262ba604b44244106a3f6381de6ae657c71d5b5d09ec1ccc5ec2af188"
+    },
+    "CETUS/ENERGY/engine.py": {
+      "bytes": 5616,
+      "sha256": "5a987a2dfb0e05ab840a871e2fda7192d7dba6942e0b8ea91cac215ff3327563"
+    },
+    "CETUS/ENERGY/model.py": {
+      "bytes": 47619,
+      "sha256": "cbb57ca6b4319fd345b78aa5a11ef4ba32c53b9c3716cffb6f3b5a372d485c9b"
+    },
+    "CETUS/ENERGY/neighborhood.py": {
+      "bytes": 48278,
+      "sha256": "8c4c677b86c723a70fd248b3c1cd0691c64ff617403bca95ef5bcf47c788de93"
+    },
+    "CETUS/ENERGY/optical_priors.json": {
+      "bytes": 1994,
+      "sha256": "9cdb10d77965a12540bac65e2bb0a21fb9ad9151bd72a2de0d0f46c2c9c51a70"
+    },
+    "CETUS/ENERGY/readme.md": {
+      "bytes": 14733,
+      "sha256": "121c098b8ac8032b18341b12a29557a75ef0f85d144a2aa0e5dfba33feee198c"
+    },
+    "CETUS/ENERGY/steady.py": {
+      "bytes": 17071,
+      "sha256": "75d31c6627eea21e012bf6ad4f680fd0cd222691e5f5743f98315eff86c9d343"
+    },
+    "CETUS/ENERGY/surface.py": {
+      "bytes": 11553,
+      "sha256": "559f71d6a9fedee5bfef6171b2053a37f0b1f738b2b26c0cad392c7dfc44563f"
+    },
+    "CETUS/ENERGY/surface_engine/go.mod": {
+      "bytes": 37,
+      "sha256": "becdc70d9663834c536f634309f18018eb06024dedadcbf11d5e5a45ae7d2e06"
+    },
+    "CETUS/ENERGY/surface_engine/main.go": {
+      "bytes": 18166,
+      "sha256": "6eee140343cdd059af23864eea024396c0424f7ae483fac3945a060187401e30"
+    },
+    "CETUS/RAD/__init__.py": {
+      "bytes": 511,
+      "sha256": "f810be73bd866ac63d44166d5a905797df5e4bc3244a79b0852d6c1af7cd9e56"
+    },
+    "CETUS/RAD/bin/rad/MoosasRad.exe": {
+      "bytes": 2081792,
+      "sha256": "25fedba5c3cfd396ef64f5b07654367f21688573bb52a3f4898f062a281e4094"
+    },
+    "CETUS/RAD/bin/rad/MoosasRad.go": {
+      "bytes": 7909,
+      "sha256": "3d07840746a94b847f3c10eaf9c74d3d1c3f0e71164f85417c6c2c634eed4890"
+    },
+    "CETUS/RAD/bin/rad/MoosasRad_pre_bvh.exe": {
+      "bytes": 2081792,
+      "sha256": "25fedba5c3cfd396ef64f5b07654367f21688573bb52a3f4898f062a281e4094"
+    },
+    "CETUS/RAD/bin/weather/epw2wea.exe": {
+      "bytes": 13824,
+      "sha256": "e8b16233467b99fc5b00f48b33fbc62ea7f24818ee6d8e918e7f104cc2b1671f"
+    },
+    "CETUS/RAD/bin/weather/gendaymtx.exe": {
+      "bytes": 30720,
+      "sha256": "6ff64dcc80f319e8cd725fdc71328ecc3ed9a51d4a270a5221a06a8afd7990c6"
+    },
+    "CETUS/RAD/data/sun_position.csv": {
+      "bytes": 3859,
+      "sha256": "bd876edefb489a18ec75b355f553523dbdcdf9f4cf99a3e802285f9f2ac0aed1"
+    },
+    "CETUS/RAD/generate_building_solar_schedules.py": {
+      "bytes": 2086,
+      "sha256": "6d2b88b1d68f7f0a6e364f6332305c1921b9dccf901318064c5c96708283564a"
+    },
+    "CETUS/RAD/network.py": {
+      "bytes": 19508,
+      "sha256": "2fb163363a1c7b05bb9a9a8956a9f5d9002c0d41f995c456d6426605a573d1fa"
+    },
+    "CETUS/RAD/rad_engine.py": {
+      "bytes": 5292,
+      "sha256": "a4ff8fea4ceb90ba39a15776ac74f18161ed73252d11196fc07b8fbccc78a233"
+    },
+    "CETUS/RAD/schedule_writer.py": {
+      "bytes": 2946,
+      "sha256": "b0bc47a4b25547eec3e682409c9bc85586530a5d4f5d2d43d1546bfc6cf13c07"
+    },
+    "CETUS/RAD/sky.py": {
+      "bytes": 1996,
+      "sha256": "03f5dadf921dfbffb088b16fe8c811359e98870209d17dd6c0727f3fe7022d3c"
+    },
+    "CETUS/RAD/solar_geometry.py": {
+      "bytes": 11489,
+      "sha256": "7f7d78c5b4496b80a91ca7d60849d409c775e7c47a3ead8e740f40fdc98cdf70"
+    },
+    "CETUS/RAD/transport_engine/go.mod": {
+      "bytes": 42,
+      "sha256": "4b5527e014f1c83705219d045e2025bb7f837a36d1535d765fe073afc52a86bd"
+    },
+    "CETUS/RAD/transport_engine/main.go": {
+      "bytes": 3631,
+      "sha256": "1e364134f2068d610ade059ba001ccb5b65bd91309cc42aa46bbb0bcf6d62e7c"
+    },
+    "CETUS/RAD/transport_engine/transport": {
+      "bytes": 3027508,
+      "sha256": "345471b0d354341a5f74342640e5286a94a1c3796d12fab728d4fc9655ab48f3"
+    },
+    "CETUS/RAD/transport_engine/transport.exe": {
+      "bytes": 3156992,
+      "sha256": "d95e22b1b3853f5882f55058cfa003353a8fffc84aa9852f7c16550bd879cbff"
+    },
+    "CETUS/RAD/weather_epw.py": {
+      "bytes": 642,
+      "sha256": "07d950f3f72892ca5a0590628c3996b7ec4415302fc452ea817419399ee91353"
+    },
+    "CETUS/RAD/workflow.py": {
+      "bytes": 26574,
+      "sha256": "acfe369e0a4a1edfd817138d7d8568ae3060bcd13a93bf2d008591bff48556cd"
+    },
+    "CETUS/SITE/__init__.py": {
+      "bytes": 291,
+      "sha256": "027afbdb434d385a54acccdc773229ecb1bb1638dc3b9e454ca90d03830dd2b6"
+    },
+    "CETUS/SITE/calc_inx_uhi_inputs.py": {
+      "bytes": 12292,
+      "sha256": "4915f20f78718b15c675284b97cb21df139eda1230d21c76fb97aca64739f608"
+    },
+    "CETUS/SITE/extract_inx_landuse.py": {
+      "bytes": 8715,
+      "sha256": "ae6057d9f94335d88270b22091cbc09fd389e661b372ecedf88be28e1e98aa70"
+    },
+    "CETUS/SITE/processSHP.py": {
+      "bytes": 16750,
+      "sha256": "df1b2f75ed28ae5c966bdf8d6317bb0c2e04aa2fda036b9fb0b59ce9f382963c"
+    },
+    "CETUS/SITE/process_BLD_SHP.py": {
+      "bytes": 27460,
+      "sha256": "28587b7067c3d8694d06672d567809e9bff6b5cd9802d2e033de684ea876f858"
+    },
+    "CETUS/SITE/process_BLD_TIF.py": {
+      "bytes": 11046,
+      "sha256": "91674e095e3524aa0d7c0136ea07e08f3a73e23770de3a4ce6a24006fadd65c7"
+    },
+    "CETUS/SITE/siteInput.py": {
+      "bytes": 13096,
+      "sha256": "afc0f38a3d58fc977bcbce84674846a42b4e4373de3a21576836465e21d48c20"
+    },
+    "CETUS/SITE/transform.py": {
+      "bytes": 13219,
+      "sha256": "83cd5f21107cdd580eefe63b56c9d9ead647f7a14831c6ddd176a27c57dcd50f"
+    },
+    "CETUS/UHI/__init__.py": {
+      "bytes": 819,
+      "sha256": "b657f3f32235e87c7c57d50f0264fce2ca0ea9ce329d0d1bbdb8a0d33842a6f0"
+    },
+    "CETUS/UHI/aT.py": {
+      "bytes": 5208,
+      "sha256": "4793e5507f76f57e36f6950225522bcbd8e31b4a6baec47d8a90dc79bc5aa8d0"
+    },
+    "CETUS/UHI/activity.py": {
+      "bytes": 2904,
+      "sha256": "e0e2420a6d51afbde1f33da064c9dfe3618e002f720a9b6d436576de89d82e4b"
+    },
+    "CETUS/UHI/anthropic.py": {
+      "bytes": 3129,
+      "sha256": "ce5aaedda1cca09e8f402fd1ad4db8412ba9a8272b1cb857c81815fbafc7465d"
+    },
+    "CETUS/UHI/calculator.py": {
+      "bytes": 8871,
+      "sha256": "eed8ad04fe1b86041edf2ce496d3c7a5468a9a982ddd2c89df326051b0fa6d20"
+    },
+    "CETUS/UHI/constant.py": {
+      "bytes": 2802,
+      "sha256": "700f08fd65aa0bf8d7732df5fbe6185262c04f13dd3ac301a2097f111a8fbba2"
+    },
+    "CETUS/UHI/csv_calculator.py": {
+      "bytes": 15022,
+      "sha256": "a65dc46e779fc6f27020126cc9176f010da1d2a81a872af312215a1b80597c59"
+    },
+    "CETUS/UHI/heatBalance.py": {
+      "bytes": 15351,
+      "sha256": "7b5db8454b1b815702b2f1a37d3a39e52f16718dbf049ce6c29835f099d4b4ca"
+    },
+    "CETUS/UHI/longwave.py": {
+      "bytes": 2776,
+      "sha256": "72b5a55a481ece446d4e9d7ce8e8827e33dd7daaa2c47ef7a5560983a1fdc8b7"
+    },
+    "CETUS/UHI/modelInfo.py": {
+      "bytes": 56136,
+      "sha256": "4e1312ede1c926410aa0ae059fa943e9bf5c3feadfbaf269c6eee9f061e89978"
+    },
+    "CETUS/UHI/params/LCZ1 copy.json": {
+      "bytes": 911,
+      "sha256": "629d66341913f05b362f171bfd4d0f6fd56d458b366425a4dcfe9fc548418e8a"
+    },
+    "CETUS/UHI/params/LCZ1.json": {
+      "bytes": 909,
+      "sha256": "6d30af7051d1251a2360440f8a4a26e3381242d95cf952cdf74c90c5d30f30ae"
+    },
+    "CETUS/UHI/params/LCZ2.json": {
+      "bytes": 909,
+      "sha256": "6d30af7051d1251a2360440f8a4a26e3381242d95cf952cdf74c90c5d30f30ae"
+    },
+    "CETUS/UHI/params/LCZ3.json": {
+      "bytes": 908,
+      "sha256": "f6c12e0ab6f3bbe73b808f90ac39f1d1afaf62e35a549e758c728cb68519a99e"
+    },
+    "CETUS/UHI/params/LCZ4.json": {
+      "bytes": 909,
+      "sha256": "e0bb3b97df15993bc126197f775b0d9de86271703b4e6d6b798ff6eefaaeeeaf"
+    },
+    "CETUS/UHI/params/LCZ5.json": {
+      "bytes": 911,
+      "sha256": "217cc3aba3cc9056e67d0c3b5ef48d5702a13034111a9d2d9649640c8d1151f8"
+    },
+    "CETUS/UHI/params/calibrated_params_diff_vs_reference.csv": {
+      "bytes": 13308,
+      "sha256": "ceb6adf588e86f598bbbf07682f247994596960fa9f3e61535bad2523a3992e3"
+    },
+    "CETUS/UHI/raster_calculator.py": {
+      "bytes": 19968,
+      "sha256": "fc9695225234da18acbc9f915ee628d0be8bc22966d2f3ad750ce8831f05bd78"
+    },
+    "CETUS/UHI/shortwave.py": {
+      "bytes": 5127,
+      "sha256": "1faa3a1f1db3d61d68982171e7795b4667c43cb378950286032ed39c6cd4a75c"
+    },
+    "CETUS/UHI/sky_vector.csv": {
+      "bytes": 3869,
+      "sha256": "fc08b72f9d9fe188d505bd59919893a6bf8058a0baf8316294b4e7574b744de5"
+    },
+    "CETUS/UHI/vapor.py": {
+      "bytes": 5792,
+      "sha256": "28ba2e9d8ef62b0bb95c8ca7468d19a89448af08ebd131646f1385830fa49770"
+    },
+    "CETUS/WEA/__init__.py": {
+      "bytes": 626,
+      "sha256": "bdab67705274f33e4548d9ca450636d1a5d3962c187bfd7691c04b914276f41f"
+    },
+    "CETUS/WEA/epw.py": {
+      "bytes": 18616,
+      "sha256": "b4c271284472061abeea8d4d48bd8a1e7126528c8adcf353728c107a31ab2567"
+    },
+    "CETUS/examples/run_v8_2.py": {
+      "bytes": 3528,
+      "sha256": "2603d05645758c54f32d79c19b344d06ba27a873077f0f410a404eac0d56f000"
+    },
+    "CETUS/requirements.txt": {
+      "bytes": 225,
+      "sha256": "4d6739bdfbd9af77a7cea8d862bc2df9ca4cbc521c33d8c1c5f09b39013e2b2b"
+    }
+  }
+}

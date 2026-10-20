@@ -1,0 +1,14 @@
+{
+  "version": "8.2",
+  "interpretation": "Engineering priors for missing material information; not calibrated site properties. Use central values deterministically. Ranges are sensitivity supports, not population confidence intervals.",
+  "wall": {"solar_reflectance": 0.30, "solar_transmittance": 0.0, "longwave_emissivity": 0.90, "reflectance_range": [0.15,0.60], "emissivity_range": [0.80,0.95]},
+  "roof": {"solar_reflectance": 0.30, "solar_transmittance": 0.0, "longwave_emissivity": 0.90, "reflectance_range": [0.10,0.60], "emissivity_range": [0.80,0.95]},
+  "window": {"solar_reflectance": 0.075, "solar_transmittance": 0.60, "solar_absorptance": 0.325, "longwave_emissivity": 0.84, "longwave_transmittance": 0.0, "transmittance_range": [0.35,0.80], "reflectance_range": [0.06,0.25], "emissivity_range": [0.80,0.90]},
+  "ground": {"solar_reflectance": 0.20, "solar_transmittance": 0.0, "longwave_emissivity": 0.95, "reflectance_range": [0.10,0.35], "emissivity_range": [0.90,0.98]},
+  "constraints": ["solar_alpha = 1-rho-tau >= 0", "opaque tau = 0", "window longwave tau = 0", "glass emissivity describes exposed surfaces, not an internal low-e coating", "legacy SHGC is not equated with measured transmittance"],
+  "sources": [
+    {"url":"https://bigladdersoftware.com/epx/docs/23-2/input-output-reference/group-surface-construction-elements.html", "basis":"Material defaults alpha_solar .7 and epsilon .9; soil epsilon .9-.98; independent spectral bands."},
+    {"url":"https://simulationresearch.lbl.gov/modelica/releases/v9.1.0/help/Buildings_HeatTransfer_Data_Glasses.html", "basis":"LBL Generic glass tauSol .6, rhoSol .075, absIR .84 and tauIR zero. Effective single-layer prior, not a multilayer optical reconstruction."},
+    {"url":"https://www.energy.gov/sites/prod/files/2013/10/f3/coolroofguide.pdf", "basis":"Nonmetal roof epsilon .80-.95 and broad reflectance variation. Roof .30 and uncertainty supports are engineering selections for unspecified mixed stock."}
+  ]
+}

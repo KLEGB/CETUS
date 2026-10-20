@@ -192,7 +192,7 @@ class RadiationNetwork:
             net.longwave=flux[:,:,2].copy();net.path=str(Path(path).resolve());return net
 
 
-def build_network(n,sky_matrix,*,sample=.3,radius_m=200.,ground_reflectance=.2,ground_emissivity=.2,
+def build_network(n,sky_matrix,*,sample=.3,radius_m=200.,ground_reflectance=.2,ground_emissivity=.95,
                   ignore_window_longwave=False,options=None,seed=42,show_progress=True):
     if not 0<sample<=1 or radius_m<=0 or not 0<=ground_reflectance<=1 or not 0<=ground_emissivity<=1:
         raise ValueError('Invalid radiation sampling, radius or ground optical parameters')
@@ -246,7 +246,7 @@ def build_network(n,sky_matrix,*,sample=.3,radius_m=200.,ground_reflectance=.2,g
     rays=load_sun_vectors();rays=rays/np.linalg.norm(rays,axis=1)[:,None]
     from WEA.epw import TREGENZA_COEFFICIENTS,TREGENZA_PATCHES_PER_ROW
     omega=np.repeat(TREGENZA_COEFFICIENTS,TREGENZA_PATCHES_PER_ROW)
-    exact_buildings=_sample_indices(len(models),sample,seed);exact=(owners<0)|np.isin(owners,exact_buildings)
+    exact_buildings=np.arange(len(models));exact=np.ones(len(owners),dtype=bool)
     direct=np.zeros((len(pts),len(hoy)),dtype=np.float32);sky=np.zeros(len(pts))
     if show_progress:print(f'RAD network: {len(pts)} points; ground {side}x{side}, retained {len(ground)}; exact buildings {len(exact_buildings)}/{len(models)}',flush=True)
     with Visibility(triangles) as service:
@@ -255,16 +255,6 @@ def build_network(n,sky_matrix,*,sample=.3,radius_m=200.,ground_reflectance=.2,g
             idx=ids[begin:begin+256];cos=np.maximum(0,norm[idx]@rays.T)
             vis=service.query(np.repeat(pts[idx],len(rays),axis=0),np.tile(rays,(len(idx),1))).reshape(len(idx),len(rays))
             response=cos*vis;direct[idx]=(response@sky_values).astype(np.float32);sky[idx]=np.clip(response@(omega/np.pi),0,1)
-        # Retain previous sample meaning: exact building fraction, remaining exposure interpolated.
-        categories=np.argmax(norm@np.array([[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1]]).T,axis=1)
-        for kind in range(5):
-            src=np.flatnonzero(exact&(owners>=0)&(categories==kind));dest=np.flatnonzero(~exact&(categories==kind))
-            if not len(dest):continue
-            if not len(src):raise ValueError('No exact samples for an orientation; increase sample')
-            dist,near=cKDTree(pts[src]).query(pts[dest],k=min(3,len(src)))
-            if dist.ndim==1:dist=dist[:,None];near=near[:,None]
-            weight=1/np.maximum(dist,1e-6)**2;weight/=weight.sum(axis=1)[:,None]
-            direct[dest]=np.sum(direct[src[near]]*weight[:,:,None],axis=1);sky[dest]=np.sum(sky[src[near]]*weight,axis=1)
         if show_progress:print('RAD network: sky exposure complete; constructing finite, blocked surface exchanges',flush=True)
         C,F,info=reciprocal_exchange(pts,norm,areas,sky,owners,service,radius_m)
     # Static reflected shortwave uses PRIMARY irradiation only: exactly one bounce.
@@ -273,7 +263,7 @@ def build_network(n,sky_matrix,*,sample=.3,radius_m=200.,ground_reflectance=.2,g
     group_area=np.bincount(groups,weights=areas,minlength=ng)
     G=Cg.multiply((1/np.maximum(group_area,1e-30))[:,None]).tocsr()
     meta=dict(protocol=RadiationNetwork.version,energy_options=options or {},optical_signature=optical_signature(n,options),sample=sample,radius_m=radius_m,
-        ground_grid_side=side,ground_points=len(ground),ground_reflectance=ground_reflectance,ground_emissivity=ground_emissivity,
+        implementation='8.2',building_exposure='all points exact; sample controls ground grid only',ground_grid_side=side,ground_points=len(ground),ground_reflectance=ground_reflectance,ground_emissivity=ground_emissivity,
         ground_area_m2=ground_area,geometric_ground_area_m2=geometric_ground_area,exact_buildings=exact_buildings.tolist(),building_count=len(models),ignore_window_longwave=ignore_window_longwave,
         shortwave_reflection_passes=1,longwave_updates=0,channels=['primary_shortwave','one_bounce_shortwave','surface_longwave'],units='W/m2',
         sky='145-patch input; check sky-matrix provenance',longwave='Grey diffuse radiosity; window non-sky absorption optionally omitted as explicit sink',**info)

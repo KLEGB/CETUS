@@ -18,11 +18,11 @@ def vector_length(vec: np.ndarray) -> float:
 
 
 def projected_weight(ray: np.ndarray, unit: np.ndarray | None = None) -> float:
-    """Return the absolute cosine projection of a ray onto a surface normal."""
+    """Return the positive front-side cosine projection onto a surface normal."""
     if unit is None:
         unit = np.array([0.0, 0.0, 1.0], dtype=float)
     ray_unit = ray / max(vector_length(ray), 1e-12)
-    return float(abs(np.dot(ray_unit, unit)))
+    return float(max(0.0,np.dot(ray_unit, unit)))
 
 
 @dataclass

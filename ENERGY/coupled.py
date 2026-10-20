@@ -57,7 +57,8 @@ def _shortwave(c,h,site,setting):
 def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_state=None,
                      preheat=4, max_preheat=120, warmup_tolerance_k=.02,
                      balance_tolerance_w_m2=.02, max_evaluations=120,
-                     executable_path=None, show_progress=True, warmup_checkpoint=None):
+                     executable_path=None, show_progress=True, warmup_checkpoint=None,
+                     warmup_acceleration=True, spinup_days=0, longwave_relaxation=1.0):
     """Return legacy-shaped hourly results plus explicit fluxes and restart state.
 
     preheat is a minimum count, max_preheat a hard limit. On a restart preheat
@@ -68,7 +69,9 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
         raise ValueError('Initialize buildings and weather first')
     if balance_tolerance_w_m2<=0 or warmup_tolerance_k<=0 or max_evaluations<1:
         raise ValueError('Invalid convergence parameters')
-    preheat=int(preheat);max_preheat=int(max_preheat)
+    preheat=int(preheat);max_preheat=int(max_preheat);spinup_days=int(spinup_days)
+    if not 0<=spinup_days<len(neighborhood.climate):raise ValueError('spinup_days must leave at least one reporting day')
+    if not 0<longwave_relaxation<=1:raise ValueError('Invalid longwave_relaxation')
     if preheat<0 or max_preheat<preheat:
         raise ValueError('Invalid warmup limits')
     climates=copy.deepcopy(neighborhood.climate)
@@ -130,7 +133,7 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
     vapor_site=copy.deepcopy(site)
     vapor_site.greenRoofPercentage=0.0  # roofs migrated; no duplicate green-roof source
     all_rows=[];building_rows=[[] for _ in neighborhood.buildings]
-    warmup_history=[]
+    warmup_history=[];warmup_vectors=[]
     if warmup_checkpoint is not None:
         if initial_state is not None or not preheat:
             raise ValueError('Warmup checkpoint requires preheat and no production restart')
@@ -220,7 +223,7 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                 radiation_error=max(max(abs(np.asarray(a)-b)) for a,b in zip(new_ir,old_ir))
                 net.refresh(int(c.HOY[h]),E)
                 if radiation_error<=.01:break
-                radiation_temperatures=[{k:.3*a[k]+.7*b[k] for k in a} for a,b in zip(radiation_temperatures,updated)]
+                radiation_temperatures=[{k:(1-longwave_relaxation)*a[k]+longwave_relaxation*b[k] for k in a} for a,b in zip(radiation_temperatures,updated)]
                 guess=solution.x
             else:raise RuntimeError(f'Longwave exchange failed at HOY {c.HOY[h]}: {radiation_error} W/m2')
             ta=float(solution.x[0]);tg=solution.x[1:]
@@ -273,30 +276,53 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                 before=copy.deepcopy(state)
                 for h in range(24):state,_,_=step(climates[0],h,templates[0],state)
                 change=max(abs(state['air_c']-before['air_c']),np.max(np.abs(np.array(state['ground_c'])-before['ground_c'])))
-                if before['buildings'][0] is not None:
-                    change=max(change,max(np.max(np.abs(np.array(a)-b)) for a,b in zip(state['buildings'],before['buildings'])))
+                previous_buildings=[v if v is not None else [p['initial_c']]*len(current) for v,p,current in zip(before['buildings'],templates[0],state['buildings'])]
+                change=max(change,max(np.max(np.abs(np.array(a)-b)) for a,b in zip(state['buildings'],previous_buildings)))
                 warmup_history.append({'cycle':cycle,'max_state_change_k':float(change)})
+                # Accelerate only the initial guess. Acceptance always uses the full,
+                # unaccelerated 24-hour physical map and its actual state residual.
+                lengths=[len(v) for v in state['buildings']]
+                vector=np.r_[state['air_c'],state['ground_c'],np.concatenate(state['buildings'])]
+                warmup_vectors.append(vector.copy())
+                accepted=cycle>=preheat and change<=warmup_tolerance_k
+                if warmup_acceleration and not accepted and len(warmup_vectors)>=3 and cycle%3==0:
+                    a,b,c=warmup_vectors[-3:];d1=b-a;d2=c-b;den=d2-d1
+                    mask=(abs(den)>1e-9)&(abs(d1)>1e-9)&(d1*d2>0)&(abs(d2)<abs(d1))
+                    guess=c.copy();guess[mask]=a[mask]-d1[mask]**2/den[mask]
+                    guess=np.clip(guess,c-10,c+10);guess=np.clip(guess,-80,120)
+                    state['air_c']=float(guess[0]);state['ground_c']=guess[1:4].tolist()
+                    offset=4
+                    for j,length in enumerate(lengths):state['buildings'][j]=guess[offset:offset+length].tolist();offset+=length
+                    # Radiation is a solved boundary, not a separately stored capacity.
+                    state.pop('radiation_surface_c',None)
+                    warmup_history[-1]['next_guess_accelerated']=True
                 if output_dir is not None:
                     checkpoint=Path(output_dir);checkpoint.mkdir(parents=True,exist_ok=True)
                     temporary=checkpoint/'warmup_checkpoint.json.tmp'
                     temporary.write_text(json.dumps({'state':state,'history':warmup_history},allow_nan=False))
                     temporary.replace(checkpoint/'warmup_checkpoint.json')
                 if show_progress:print(f'Warmup {cycle}: {change:.5f} K',flush=True)
-                if cycle>=preheat and change<=warmup_tolerance_k:
+                if accepted:
                     converged=True;break
             if not converged:raise RuntimeError(f'Warmup did not converge in {max_preheat} cycles')
+        report_initial_state=None
         for day,c in enumerate(climates):
+            if day==spinup_days:report_initial_state=copy.deepcopy(state)
             for h in range(24):
                 state,row,outs=step(c,h,templates[day],state)
                 all_rows.append(row)
                 if show_progress and h%6==0:print(f'HOY {int(c.HOY[h])}: LW iterations={row.get("radiation_iterations",1)}, residual={row["max_residual_w_m2"]:.3g} W/m2',flush=True)
                 for b,out in enumerate(outs):building_rows[b].append(out)
             if show_progress:print(f'Coupled day {day+1}/{len(climates)} complete',flush=True)
+    spinup_info={'days':spinup_days,'hours':spinup_days*24,'start_hoy':int(hoy[0]),'report_start_hoy':int(hoy[spinup_days*24])}
+    if spinup_days:
+        climates=climates[spinup_days:];all_rows=all_rows[spinup_days*24:]
+        building_rows=[rows[spinup_days*24:] for rows in building_rows];hoy=hoy[spinup_days*24:]
     # Write state/output before committing caller objects, so failed persistence is explicit.
     if net is not None:
         net.save()
-    metadata={'engine':'cetus-surface-7-reconstructed','exposed_fractions':dict(zip(NAMES,fractions.tolist())),
-        'warmup':warmup_history,'final_state':state,'assumptions':audits[0],'radiation_network':net.meta if net is not None else None,
+    metadata={'engine':'cetus-surface-7-reconstructed','implementation':'8.2','exposed_fractions':dict(zip(NAMES,fractions.tolist())),
+        'warmup':warmup_history,'warmup_method':'periodic first forcing day; Aitken guesses, full-day residual acceptance' if warmup_acceleration else 'periodic first forcing day','chronological_spinup':spinup_info,'report_initial_state':report_initial_state,'final_state':state,'assumptions':audits[0],'radiation_network':net.meta if net is not None else None,
         'green_roofs':'Green-roof evaporation is disabled in this coupled path; no roof moisture model.',
         'ground_receiver':'Area-weighted exposed ground temperature used by buildings; returned ground exchanges distributed by exposed area.',
         'latent':'Existing UHI evaporation remains a prescribed canopy sensible-energy sink; humidity is not prognostic.'}
@@ -307,8 +333,9 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
         (folder/'state.json').write_text(json.dumps(state,indent=2,allow_nan=False))
         (folder/'audit.json').write_text(json.dumps(metadata,indent=2,allow_nan=False))
         (folder/'building_hourly.json').write_text(json.dumps(building_rows,allow_nan=False,separators=(',',':')))
-    for old,new in zip(neighborhood.climate,climates):
+    for old,new in zip(neighborhood.climate[spinup_days:],climates):
         for field in old.__slots__:setattr(old,field,copy.deepcopy(getattr(new,field)))
+    if spinup_days:neighborhood.climate=neighborhood.climate[spinup_days:]
     for b,rows in zip(neighborhood.buildings,building_rows):
         b.energyModel='surface-v7';b.energyHOY=hoy.tolist()
         b.energyFeedback={'surface_v7':rows}

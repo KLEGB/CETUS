@@ -63,6 +63,15 @@ type Input struct {
 	SolarFloor float64   `json:"solar_floor_fraction"`
 }
 type SurfaceOut struct {
+	StructureIntoInterior float64 `json:"structure_into_interior_w"`
+	ExteriorConvection    float64 `json:"exterior_convection_to_air_w"`
+	InteriorConvection    float64 `json:"interior_convection_to_zone_w"`
+	InteriorLW            float64 `json:"interior_longwave_to_surface_w"`
+	SolarDeposited        float64 `json:"transmitted_solar_deposited_w"`
+	ExteriorContact       float64 `json:"exterior_contact_to_ground_w"`
+	ExternalLW            float64 `json:"external_net_lw_w"`
+	BodyResidual          float64 `json:"body_balance_residual_w"`
+
 	Name        string  `json:"name"`
 	Te          float64 `json:"exterior_c"`
 	Ti          float64 `json:"interior_c"`
@@ -74,6 +83,8 @@ type SurfaceOut struct {
 	Transmitted float64 `json:"transmitted_w"`
 }
 type OutputHour struct {
+	Radiant float64 `json:"radiant_c"`
+
 	NetworkLW     float64      `json:"longwave_to_network_w"`
 	Zone          float64      `json:"zone_c"`
 	HVAC          float64      `json:"hvac_w"` // positive heating, negative cooling
@@ -335,7 +346,7 @@ func hour(p Input, h Hour, old []float64, t []topology, n int) (OutputHour, []fl
 				qhvac += v * x[j]
 			}
 			qhvac -= airB
-			if delta < 1e-8 {
+			if delta < 1e-10 {
 				converged = true
 				break
 			}
@@ -353,7 +364,7 @@ func hour(p Input, h Hour, old []float64, t []topology, n int) (OutputHour, []fl
 			break
 		}
 	}
-	out := OutputHour{Zone: x[z], HVAC: qhvac}
+	out := OutputHour{Zone: x[z], Radiant: x[rad], HVAC: qhvac}
 	if qhvac >= 0 {
 		out.Electricity = qhvac / p.COPh
 	} else {
@@ -380,6 +391,23 @@ func hour(p Input, h Hour, old []float64, t []topology, n int) (OutputHour, []fl
 			ho = h.Ho[k]
 		}
 		out.Convection += ho * s.Area * (o.Te - h.Air)
+		prev := v.ext
+		if len(v.mid) > 0 {
+			prev = v.mid[len(v.mid)-1]
+		}
+		o.StructureIntoInterior = v.links[len(v.links)-1] * (x[prev] - x[v.in])
+		o.ExteriorConvection = ho * s.Area * (o.Te - h.Air)
+		o.InteriorConvection = s.Hi * s.Area * (o.Ti - x[z])
+		o.InteriorLW = hr(s.Eps, o.Ti, x[rad]) * s.Area * (x[rad] - o.Ti)
+		o.SolarDeposited = solar * weights[k]
+		o.ExteriorContact = s.GroundH * s.Area * (o.Te - h.Ground)
+		if len(h.NetworkIR) > 0 && s.Kind != "floor" {
+			o.ExternalLW = s.Area * s.Eps * (sigma*fourth(o.Te) - h.NetworkIR[k])
+		} else {
+			o.ExternalLW = s.Area * s.Eps * (s.Sky*(sigma*fourth(o.Te)-h.SkyIR) + s.Ground*sigma*(fourth(o.Te)-fourth(h.Ground)))
+		}
+		o.BodyResidual = o.Absorbed*(1-s.AbsInside) - o.ExternalLW - o.ExteriorConvection - o.ExteriorContact - o.Storage - o.StructureIntoInterior
+		out.Surfaces[len(out.Surfaces)-1] = o
 		out.GroundContact += s.GroundH * s.Area * (o.Te - h.Ground)
 		if len(h.NetworkIR) > 0 && s.Kind != "floor" {
 			out.NetworkLW += s.Area * s.Eps * (sigma*fourth(o.Te) - h.NetworkIR[k])

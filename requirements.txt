@@ -13,3 +13,6 @@ optuna
 
 # Conservative hourly surface/UHI coupling
 scipy
+
+# Reproducible validation figures
+matplotlib

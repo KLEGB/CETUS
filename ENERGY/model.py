@@ -429,9 +429,10 @@ class BuildingInstance:
     LightingHeatGain: float | str = 0.0
     InfiltrationACH: float = 0.0
     NightVentilationACH: float = 0.0
-    WallReflectance: float = .26
-    RoofReflectance: float = .26
-    WindowReflectance: float | None = None
+    WallReflectance: float = .30
+    RoofReflectance: float = .30
+    WindowReflectance: float | None = .075
+    WindowTransmittance: float = .60
     WallEmissivity: float = .9
     RoofEmissivity: float = .9
     WindowEmissivity: float = .84

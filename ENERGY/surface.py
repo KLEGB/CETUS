@@ -106,9 +106,9 @@ class SurfaceEngine:
 def build_surface_input(building, climate, *, irradiance=None, options=None):
     """Build a natural day. Options are explicit construction/optical overrides.
 
-    Existing archetypes expose SHGC only. Until true optical data are supplied,
-    SHGC is an *effective* transmittance with alpha=0, rho=1-SHGC. This preserves
-    its effective solar gain once; it does not claim a measured transmittance.
+    V8.2 uses explicit solar transmittance, reflectance and absorptance.
+    Missing glass data use the documented mixed-stock prior tau=.60, rho=.075.
+    Legacy WindowSHGC remains metadata, not a measured solar transmittance.
     """
     options = copy.deepcopy(options or {})
     allowed = {'surfaces', 'internal_radiant_fraction', 'solar_floor_fraction', 'dt_s'}
@@ -138,7 +138,7 @@ def build_surface_input(building, climate, *, irradiance=None, options=None):
         facade, roof = (np.asarray(irradiance[k], dtype=float) for k in ('facade', 'roof'))
         if facade.shape != (24,) or roof.shape != (24,) or np.any(facade<0) or np.any(roof<0):
             raise ValueError('Invalid daily irradiance')
-        radiation_note = 'RAD N/W/S/E equal-direction mean and roof T; not orientation-area weighting.'
+        radiation_note = 'Prescribed facade/roof incident SW; network path uses area-weighted primary plus reflected.'
     surfaces, solar = [], []
     for name in area:
         if area[name] <= 0:
@@ -156,10 +156,10 @@ def build_surface_input(building, climate, *, irradiance=None, options=None):
         resistance = 1/nominal_u - (rsi+rse if convention == 'air_to_air' else 0)
         if resistance <= 0 and 'resistance_m2k_w' not in cfg:
             raise ValueError('U yields nonpositive construction resistance; supply construction R explicitly')
-        tau = float(building.WindowSHGC) if window else 0.0
+        tau = float(getattr(building,'WindowTransmittance',.60)) if window else 0.0
         surface = dict(name=name, kind=name, area_m2=float(area[name]), resistance_m2k_w=resistance,
             thermal_mass_j_m2k=0.0 if window else (120000.0 if name=='floor' else 60000.0),
-            reflectance=(getattr(building,'WindowReflectance',None) if getattr(building,'WindowReflectance',None) is not None else 1-tau) if window else getattr(building,'RoofReflectance' if name=='roof' else 'WallReflectance',.26), transmittance=tau, emissivity=getattr(building,'WindowEmissivity',.84) if window else getattr(building,'RoofEmissivity' if name=='roof' else 'WallEmissivity',.9),
+            reflectance=(getattr(building,'WindowReflectance',None) if getattr(building,'WindowReflectance',None) is not None else .075) if window else getattr(building,'RoofReflectance' if name=='roof' else 'WallReflectance',.30), transmittance=tau, emissivity=getattr(building,'WindowEmissivity',.84) if window else getattr(building,'RoofEmissivity' if name=='roof' else 'WallEmissivity',.9),
             hi_w_m2k=3.0, ho_w_m2k=0.0 if name=='floor' else 10.0,
             sky_view=0.0 if name=='floor' else (1.0 if name in {'roof','skylight'} else .5),
             ground_view=.5 if name in {'wall','window'} else 0.0,
@@ -203,7 +203,7 @@ def build_surface_input(building, climate, *, irradiance=None, options=None):
     if payload['dt_s']!=3600:
         raise ValueError('Neighborhood climate is hourly; dt_s must be 3600')
     json.dumps(payload, allow_nan=False)
-    return payload, {'radiation':radiation_note,'optics':'Archetype SHGC is effective tau with zero absorption unless overridden.',
+    return payload, {'radiation':radiation_note,'optics':'V8.2 explicit solar rho/tau; alpha=1-rho-tau. Legacy SHGC is not used as tau.',
         'construction':'Roof/floor U default to WallUValue; nominal U reference films removed once.',
-        'longwave':'Wall/window sky=.5, ground=.5; roof/skylight sky=1. Ground is a lumped radiative receiver.',
+        'longwave':'Standalone fallback uses prescribed sky/ground fractions; RAD network replaces it with geometric sky, intersurface and far-field incident IR.',
         'thermal_mass':'Default effective capacities are assumptions, not calibrated constructions.'}
