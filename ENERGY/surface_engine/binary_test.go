@@ -1,0 +1,117 @@
+package main
+
+import (
+	"bytes"
+	"math"
+	"reflect"
+	"testing"
+)
+
+func TestBinaryPreparedImmutableAndLevels(t *testing.T) {
+	p := example()
+	p.Hours[0].Irr = []float64{600, 600, 0}
+	p.Hours[0].Internal = 200
+	topology, n := makeTopology(p)
+	p.Initial = make([]float64, n)
+	for i := range p.Initial {
+		p.Initial[i] = 20
+	}
+	old := append([]float64(nil), p.Initial...)
+	want, e := run(p)
+	if e != nil {
+		t.Fatal(e)
+	}
+	s := binarySession{models: []prepared{{p: p, t: topology, n: n}}, step: []Input{p}, stepID: 7}
+	for repeat := 0; repeat < 10; repeat++ {
+		for level := 0; level < 3; level++ {
+			b := new(bytes.Buffer)
+			putID(b, 7)
+			putU(b, uint32(level))
+			putU(b, 1)
+			putU(b, 0)
+			putU(b, 0)
+			raw, e := s.handle(3, b.Bytes())
+			if e != nil {
+				t.Fatal(e)
+			}
+			r := &reader{b: raw}
+			if r.u() != 1 {
+				t.Fatal("model count")
+			}
+			h := want.Hours[0]
+			expected := []float64{h.Convection + h.Ventilation + h.OutdoorHVAC, h.GroundLW + h.GroundContact, math.Abs(h.Residual)}
+			for _, v := range expected {
+				if r.f() != v {
+					t.Fatal("summary differs")
+				}
+			}
+			if level == 1 {
+				count := int(r.u())
+				if count != len(p.Surfaces) {
+					t.Fatal("surface count")
+				}
+				for _, v := range h.Surfaces {
+					if r.f() != v.Te {
+						t.Fatal("surface temperature differs")
+					}
+				}
+			}
+			if level == 2 {
+				expected := new(bytes.Buffer)
+				writeFull(expected, h)
+				if !bytes.Equal(r.take(expected.Len()), expected.Bytes()) {
+					t.Fatal("full output differs")
+				}
+			}
+			if !reflect.DeepEqual(r.array(), want.Final) {
+				t.Fatal("state differs")
+			}
+			if r.err != nil || r.p != len(raw) {
+				t.Fatal("invalid response")
+			}
+		}
+	}
+	if !reflect.DeepEqual(p.Initial, old) {
+		t.Fatal("trial changed old state")
+	}
+}
+
+func TestBinaryRejectMalformedAndStale(t *testing.T) {
+	s := new(binarySession)
+	for op := uint16(1); op <= 4; op++ {
+		if _, e := s.handle(op, []byte{1, 2}); e == nil {
+			t.Fatalf("accepted truncated op %d", op)
+		}
+	}
+	b := new(bytes.Buffer)
+	putID(b, 1)
+	putU(b, 0)
+	if _, e := s.handle(2, b.Bytes()); e == nil {
+		t.Fatal("begin without configured models")
+	}
+}
+
+func TestBinaryConcurrentWorkspaces(t *testing.T) {
+	p := example()
+	topology, n := makeTopology(p)
+	p.Initial = make([]float64, n)
+	for i := range p.Initial {
+		p.Initial[i] = 20
+	}
+	s := binarySession{models: make([]prepared, 16), step: make([]Input, 16), stepID: 9}
+	for i := range s.models {
+		s.models[i] = prepared{p: p, t: topology, n: n}
+		s.step[i] = p
+	}
+	b := new(bytes.Buffer)
+	putID(b, 9)
+	putU(b, 0)
+	putU(b, 0)
+	putU(b, 0)
+	putU(b, 0)
+	for i := 0; i < 20; i++ {
+		if _, e := s.handle(3, b.Bytes()); e != nil {
+			t.Fatal(e)
+		}
+	}
+}

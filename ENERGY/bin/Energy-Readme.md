@@ -1,3 +1,7 @@
+# V8.3 接口入口更新
+
+当前 CetusSurfaceEnergy 的权威接口文档为 [CetusSurfaceEnergy_V8.3_Interface.md](../../docs/CetusSurfaceEnergy_V8.3_Interface.md)。下文保留历史接口说明，不代表新版二进制协议。
+
 # MoosasEnergy 夏季稳态传热＋经验时序转换协议 v4
 
 本项目对应的 R5 源文件为 `MoosasEnergy-new.go`；`MoosasEnergy.go` 保留旧 `.i/.o` 源码。原上游说明提到的 examples/ 与 reproduce/parameters.json 未随本项目分发；输入可由 ENERGY.steady.build_steady_input 生成。不要从 benchmark 的200W、COP=1或Denver空气密度直接推成通用参数。

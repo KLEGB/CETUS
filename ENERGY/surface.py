@@ -29,7 +29,7 @@ def ensure_surface_binary(executable_path=None):
         return target
     target = ROOT / 'bin' / ('CetusSurfaceEnergy.exe' if platform.system() == 'Windows' else 'CetusSurfaceEnergy')
     source = ROOT / 'surface_engine' / 'main.go'
-    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    digest = hashlib.sha256(b''.join(p.name.encode()+p.read_bytes() for p in sorted(source.parent.glob('*.go')) if not p.name.endswith('_test.go'))).hexdigest()
     stamp = target.with_suffix(target.suffix + '.sha256')
     if not target.exists() or not stamp.exists() or stamp.read_text().strip() != digest:
         compiler = os.environ.get('CETUS_GO') or shutil.which('go')

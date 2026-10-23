@@ -105,6 +105,7 @@ type Output struct {
 	Final    []float64    `json:"final_state"`
 }
 type topology struct {
+	nodes   []int
 	ext, in int
 	mid     []int
 	caps    []float64
@@ -156,6 +157,9 @@ func validate(p Input) error {
 			}
 		}
 	}
+	return validateHours(p)
+}
+func validateHours(p Input) error {
 	for _, h := range p.Hours {
 		if len(h.NetworkIR) != 0 && len(h.NetworkIR) != len(p.Surfaces) {
 			return fmt.Errorf("network IR array size mismatch")
@@ -209,6 +213,10 @@ func makeTopology(p Input) ([]topology, int) {
 		t[k].in = n
 		n++
 	}
+	for k := range t {
+		t[k].nodes = append([]int{t[k].ext}, t[k].mid...)
+		t[k].nodes = append(t[k].nodes, t[k].in)
+	}
 	return t, n + 2 // zone air and massless indoor radiant enclosure
 }
 func matrix(n int) ([][]float64, []float64) {
@@ -255,6 +263,18 @@ func solve(a [][]float64, b []float64) ([]float64, error) {
 func hr(e, a, b float64) float64 { a += 273.15; b += 273.15; return e * sigma * (a + b) * (a*a + b*b) }
 func fourth(c float64) float64   { return math.Pow(c+273.15, 4) }
 func hour(p Input, h Hour, old []float64, t []topology, n int) (OutputHour, []float64, error) {
+	return hourLevel(p, h, old, t, n, 2)
+}
+func hourLevel(p Input, h Hour, old []float64, t []topology, n, level int) (OutputHour, []float64, error) {
+	return hourPrepared(p, h, old, t, n, level, nil)
+}
+
+type workspace struct {
+	a [][]float64
+	b []float64
+}
+
+func hourPrepared(p Input, h Hour, old []float64, t []topology, n, level int, w *workspace) (OutputHour, []float64, error) {
 	z, rad := n-2, n-1
 	x := append([]float64(nil), old...)
 	sky := math.Pow(h.SkyIR/sigma, .25) - 273.15
@@ -277,6 +297,12 @@ func hour(p Input, h Hour, old []float64, t []topology, n int) (OutputHour, []fl
 			}
 		}
 	}
+	if w == nil {
+		w = new(workspace)
+	}
+	if len(w.b) != n {
+		w.a, w.b = matrix(n)
+	}
 	var qhvac float64
 	// The free-running trial and thermostat trial share the immutable old state.
 	fixed := false
@@ -284,11 +310,14 @@ func hour(p Input, h Hour, old []float64, t []topology, n int) (OutputHour, []fl
 	for mode := 0; mode < 2; mode++ {
 		converged := false
 		for iter := 0; iter < 100; iter++ {
-			a, b := matrix(n)
+			a, b := w.a, w.b
+			for i := range a {
+				clear(a[i])
+			}
+			clear(b)
 			for k, s := range p.Surfaces {
 				v := t[k]
-				nodes := append([]int{v.ext}, v.mid...)
-				nodes = append(nodes, v.in)
+				nodes := v.nodes
 				for j, g := range v.links {
 					link(a, nodes[j], nodes[j+1], g)
 				}
@@ -384,30 +413,34 @@ func hour(p Input, h Hour, old []float64, t []topology, n int) (OutputHour, []fl
 		}
 		o.Delta = o.Storage * p.Dt / 3.6e6
 		out.Storage += o.Storage
-		out.Surfaces = append(out.Surfaces, o)
+		if level > 0 {
+			out.Surfaces = append(out.Surfaces, o)
+		}
 		sw += o.Transmitted + o.Absorbed
 		ho := s.Ho
 		if len(h.Ho) > 0 {
 			ho = h.Ho[k]
 		}
 		out.Convection += ho * s.Area * (o.Te - h.Air)
-		prev := v.ext
-		if len(v.mid) > 0 {
-			prev = v.mid[len(v.mid)-1]
+		if level == 2 {
+			prev := v.ext
+			if len(v.mid) > 0 {
+				prev = v.mid[len(v.mid)-1]
+			}
+			o.StructureIntoInterior = v.links[len(v.links)-1] * (x[prev] - x[v.in])
+			o.ExteriorConvection = ho * s.Area * (o.Te - h.Air)
+			o.InteriorConvection = s.Hi * s.Area * (o.Ti - x[z])
+			o.InteriorLW = hr(s.Eps, o.Ti, x[rad]) * s.Area * (x[rad] - o.Ti)
+			o.SolarDeposited = solar * weights[k]
+			o.ExteriorContact = s.GroundH * s.Area * (o.Te - h.Ground)
+			if len(h.NetworkIR) > 0 && s.Kind != "floor" {
+				o.ExternalLW = s.Area * s.Eps * (sigma*fourth(o.Te) - h.NetworkIR[k])
+			} else {
+				o.ExternalLW = s.Area * s.Eps * (s.Sky*(sigma*fourth(o.Te)-h.SkyIR) + s.Ground*sigma*(fourth(o.Te)-fourth(h.Ground)))
+			}
+			o.BodyResidual = o.Absorbed*(1-s.AbsInside) - o.ExternalLW - o.ExteriorConvection - o.ExteriorContact - o.Storage - o.StructureIntoInterior
+			out.Surfaces[len(out.Surfaces)-1] = o
 		}
-		o.StructureIntoInterior = v.links[len(v.links)-1] * (x[prev] - x[v.in])
-		o.ExteriorConvection = ho * s.Area * (o.Te - h.Air)
-		o.InteriorConvection = s.Hi * s.Area * (o.Ti - x[z])
-		o.InteriorLW = hr(s.Eps, o.Ti, x[rad]) * s.Area * (x[rad] - o.Ti)
-		o.SolarDeposited = solar * weights[k]
-		o.ExteriorContact = s.GroundH * s.Area * (o.Te - h.Ground)
-		if len(h.NetworkIR) > 0 && s.Kind != "floor" {
-			o.ExternalLW = s.Area * s.Eps * (sigma*fourth(o.Te) - h.NetworkIR[k])
-		} else {
-			o.ExternalLW = s.Area * s.Eps * (s.Sky*(sigma*fourth(o.Te)-h.SkyIR) + s.Ground*sigma*(fourth(o.Te)-fourth(h.Ground)))
-		}
-		o.BodyResidual = o.Absorbed*(1-s.AbsInside) - o.ExternalLW - o.ExteriorConvection - o.ExteriorContact - o.Storage - o.StructureIntoInterior
-		out.Surfaces[len(out.Surfaces)-1] = o
 		out.GroundContact += s.GroundH * s.Area * (o.Te - h.Ground)
 		if len(h.NetworkIR) > 0 && s.Kind != "floor" {
 			out.NetworkLW += s.Area * s.Eps * (sigma*fourth(o.Te) - h.NetworkIR[k])
@@ -516,6 +549,13 @@ func runBatch(req Request, models []Input) ([]Output, error) {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--binary" {
+		binaryMain()
+		return
+	}
+	legacyMain()
+}
+func legacyMain() {
 	in, out := io.Reader(os.Stdin), io.Writer(os.Stdout)
 	if len(os.Args) == 3 {
 		f, e := os.Open(os.Args[1])

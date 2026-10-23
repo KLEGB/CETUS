@@ -70,31 +70,28 @@ def optical_signature(n,options=None):
 
 
 def reciprocal_exchange(points,normals,areas,sky,owners,visibility,radius):
-    """Symmetric area conductance Cij=Ai*Fij, no same-point/backside/blocked links."""
-    tree=cKDTree(points);ii=[];jj=[];cc=[]
+    tree=cKDTree(points);ii=[];jj=[];cc=[];oi=[];oj=[];od=[];ou=[];oc=[];size=0
+    def flush():
+        nonlocal size
+        if not size:return
+        i=np.concatenate(oi);j=np.concatenate(oj);d=np.concatenate(od);u=np.concatenate(ou);c=np.concatenate(oc)
+        clear=visibility.query(points[i],u,d)
+        ii.append(i[clear]);jj.append(j[clear]);cc.append(c[clear]);oi.clear();oj.clear();od.clear();ou.clear();oc.clear();size=0
     for begin in range(0,len(points),256):
         neighborhoods=tree.query_ball_point(points[begin:begin+256],radius)
         for i,neighbors in enumerate(neighborhoods,begin):
             j=np.asarray(neighbors,dtype=int);j=j[j>i]
             if not len(j):continue
-            delta=points[j]-points[i];distance=np.linalg.norm(delta,axis=1)
-            valid=distance>1e-3;j=j[valid];delta=delta[valid];distance=distance[valid]
-            unit=delta/distance[:,None]
-            ci=unit@normals[i];cj=-np.einsum('ij,ij->i',unit,normals[j]);valid=(ci>1e-8)&(cj>1e-8)
+            delta=points[j]-points[i];distance=np.linalg.norm(delta,axis=1);valid=distance>1e-3;j=j[valid];delta=delta[valid];distance=distance[valid]
+            unit=delta/distance[:,None];ci=unit@normals[i];cj=-np.einsum('ij,ij->i',unit,normals[j]);valid=(ci>1e-8)&(cj>1e-8)
             j=j[valid];distance=distance[valid];unit=unit[valid];ci=ci[valid];cj=cj[valid]
             if not len(j):continue
-            clear=visibility.query(np.repeat(points[i:i+1],len(j),axis=0),unit,distance)
-            j=j[clear];distance=distance[clear];ci=ci[clear];cj=cj[clear]
-            ii.extend([i]*len(j));jj.extend(j.tolist());cc.extend((areas[i]*areas[j]*ci*cj/(np.pi*distance**2)).tolist())
-    i=np.asarray(ii,dtype=int);j=np.asarray(jj,dtype=int);c=np.asarray(cc)
-    raw=np.bincount(np.r_[i,j],weights=np.r_[c,c],minlength=len(points))
-    capacity=areas*np.clip(1-sky,0,1)
-    scale=np.minimum(1,capacity/np.maximum(raw,1e-30))
-    c*=np.minimum(scale[i],scale[j])  # symmetric limiter preserves reciprocity
-    C=coo_matrix((np.r_[c,c],(np.r_[i,j],np.r_[j,i])),shape=(len(points),len(points))).tocsr();C.eliminate_zeros()
-    F=C.multiply((1/areas)[:,None]).tocsr()
+            oi.append(np.full(len(j),i,dtype=int));oj.append(j);od.append(distance);ou.append(unit);oc.append(areas[i]*areas[j]*ci*cj/(np.pi*distance**2));size+=len(j)
+            if size>=40000:flush()
+    flush();i=np.concatenate(ii) if ii else np.empty(0,dtype=int);j=np.concatenate(jj) if jj else np.empty(0,dtype=int);c=np.concatenate(cc) if cc else np.empty(0)
+    raw=np.bincount(np.r_[i,j],weights=np.r_[c,c],minlength=len(points));capacity=areas*np.clip(1-sky,0,1);scale=np.minimum(1,capacity/np.maximum(raw,1e-30));c*=np.minimum(scale[i],scale[j])
+    C=coo_matrix((np.r_[c,c],(np.r_[i,j],np.r_[j,i])),shape=(len(points),len(points))).tocsr();C.eliminate_zeros();F=C.multiply((1/areas)[:,None]).tocsr()
     return C,F,dict(candidate_visible_pairs=len(c),limited_points=int(np.sum(scale<1)),raw_max_view_sum=float(np.max(raw/areas)))
-
 
 class RadiationNetwork:
     version='cetus-rad-network-8'
@@ -133,8 +130,9 @@ class RadiationNetwork:
                 a=sum(surfaces[k]['area_m2'] for k in names if k in surfaces)
                 if a:E[2*b+offset]=sum(surfaces[k]['area_m2']*surfaces[k]['emissivity']*SIGMA*(temp[k]+273.15)**4 for k in names if k in surfaces)/a
         return E
-    def longwave_boundary(self,models,temperatures,ground,sky_ir,air):
-        E=self.emission(models,temperatures,ground)
+    def longwave_boundary(self,models,temperatures,ground,sky_ir,air,building_emission=None):
+        E=self.emission(models,temperatures,ground) if building_emission is None else np.array(building_emission,copy=True)
+        if building_emission is not None:E[-1]=self.meta['ground_emissivity']*SIGMA*sum(w*(t+273.15)**4 for w,t in ground)
         env=self.group_sky*sky_ir+self.far*SIGMA*(air+273.15)**4
         if self._lw_solve is None:
             eps=np.zeros(len(self.group_area));eps[-1]=self.meta['ground_emissivity']

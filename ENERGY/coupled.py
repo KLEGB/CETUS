@@ -18,6 +18,7 @@ from UHI.aT import airDensity, combinedConvectionCoefficient, referenceVelocity
 from UHI.shortwave import solarRadiationTime
 from UHI.vapor import vaporHeatFlowIntensity
 from .surface import SurfaceEngine, build_surface_input, SIGMA
+from .surface_binary import BinarySurfaceEngine
 
 NAMES = ('ground','land','water')
 
@@ -58,13 +59,15 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                      preheat=4, max_preheat=120, warmup_tolerance_k=.02,
                      balance_tolerance_w_m2=.02, max_evaluations=120,
                      executable_path=None, show_progress=True, warmup_checkpoint=None,
-                     warmup_acceleration=True, spinup_days=0, longwave_relaxation=1.0):
+                     warmup_acceleration=True, spinup_days=0, longwave_relaxation=1.0, engine_protocol='binary'):
     """Return legacy-shaped hourly results plus explicit fluxes and restart state.
 
     preheat is a minimum count, max_preheat a hard limit. On a restart preheat
     must be zero. One repeatable first-day cycle is used only at sequence start.
     Multi-day gaps are rejected. Failures leave the caller's climates unchanged.
     """
+    if engine_protocol not in ('binary','json'):raise ValueError('engine_protocol must be binary or json')
+    binary_engine=engine_protocol=='binary'
     if not neighborhood.buildings or not neighborhood.climate:
         raise ValueError('Initialize buildings and weather first')
     if balance_tolerance_w_m2<=0 or warmup_tolerance_k<=0 or max_evaluations<1:
@@ -142,7 +145,7 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
         if candidate.get('signature')!=signature or candidate.get('last_hoy')!=int(hoy[0])+23:
             raise ValueError('Warmup checkpoint configuration or forcing day differs')
         state=copy.deepcopy(candidate);warmup_history=copy.deepcopy(saved['history'])
-    with SurfaceEngine(executable_path) as engine:
+    with (BinarySurfaceEngine(executable_path) if binary_engine else SurfaceEngine(executable_path)) as engine:
         engine.configure(templates[0])
         def step(c,h,models,old):
             # Preserve previous-hour UHI state even at midnight and during root trials.
@@ -167,8 +170,10 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
             radiation_temperatures=old.get('radiation_surface_c')
             if net is not None and radiation_temperatures is None:
                 radiation_temperatures=[{s['name']:old['air_c'] for s in p['surfaces']} for p in base]
+            if binary_engine:engine.begin_step(base)
             radiation_iterations=0
-            def evaluate(x, trial=False):
+            fixed_emission=None
+            def evaluate(x, trial=False, full=False):
                 ta=float(x[0]);tg=np.asarray(x[1:],float)
                 if not np.isfinite(x).all() or min(x)<=-100 or max(x)>=180:
                     raise RuntimeError('Coupling root left physical temperature bracket')
@@ -176,9 +181,17 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                 for p in base:
                     p['hours'][0]['air_c']=ta;p['hours'][0]['ground_c']=ground
                 if net is not None:
-                    ir,ground_ir,emission,incoming=net.longwave_boundary(base,radiation_temperatures,list(zip(weights,tg)),skyir,ta)
+                    ir,ground_ir,emission,incoming=net.longwave_boundary(base,radiation_temperatures,list(zip(weights,tg)),skyir,ta,building_emission=fixed_emission)
                     for p,boundary in zip(base,ir):p['hours'][0]['network_ir_w_m2']=boundary
-                if trial:
+                temperatures=None
+                if binary_engine:
+                    level='totals' if trial else ('full' if full else 'coupling')
+                    result=engine.evaluate([p['hours'][0] for p in base],response_level=level,
+                        return_state=full,dynamic_fields=('air_c','ground_c','network_ir_w_m2') if net is not None else ('air_c','ground_c'))
+                    building=result.get('batch')
+                    temperatures=result.get('surface_temperatures')
+                    air=result['air_w']/area;paired=result['ground_w']/area
+                elif trial:
                     totals=engine.trial(base)
                     building=None
                     air=totals['air_w']/area;paired=totals['ground_w']/area
@@ -202,7 +215,7 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                 residual_ground=np.where(fractions>0,residual_ground,tg-np.asarray(old['ground_c']))
                 residual_air=float(fractions@sensible)+air+traffic+vapor-canopy-air_storage
                 residual=np.r_[residual_air,residual_ground]
-                return residual,dict(building=building,air=air,paired=paired,short=short,lw=lw,
+                return residual,dict(building=building,surface_temperatures=temperatures,air=air,paired=paired,short=short,lw=lw,
                     vapor=vapor,traffic=traffic,canopy=canopy,air_storage=air_storage,
                     ground_storage=ground_storage,conduction=conduction,sensible=sensible)
             count=0
@@ -212,20 +225,25 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                 return evaluate(x,trial=True)[0]
             guess=np.r_[old['air_c'],old['ground_c']]
             for radiation_iterations in range(1,51 if net is not None else 2):
+                fixed_emission=net.emission(base,radiation_temperatures,[(1.,20.)]) if net is not None else None
                 solution=root(fun,guess,options={'xtol':1e-8,'maxfev':max_evaluations})
                 residual,data=evaluate(solution.x)
                 if np.max(np.abs(residual))>balance_tolerance_w_m2:
                     raise RuntimeError(f'Unconverged HOY {c.HOY[h]}: {residual.tolist()}; {solution.message}')
                 if net is None:break
-                updated=[{s['name']:s['exterior_c'] for s in b['hours'][0]['surfaces']} for b in data['building']]
+                updated=data['surface_temperatures'] if binary_engine else [{s['name']:s['exterior_c'] for s in b['hours'][0]['surfaces']} for b in data['building']]
                 new_ir,new_ground_ir,E,incoming=net.longwave_boundary(base,updated,list(zip(weights,solution.x[1:])),skyir,float(solution.x[0]))
                 old_ir=[p['hours'][0]['network_ir_w_m2'] for p in base]
                 radiation_error=max(max(abs(np.asarray(a)-b)) for a,b in zip(new_ir,old_ir))
-                net.refresh(int(c.HOY[h]),E)
                 if radiation_error<=.01:break
                 radiation_temperatures=[{k:(1-longwave_relaxation)*a[k]+longwave_relaxation*b[k] for k in a} for a,b in zip(radiation_temperatures,updated)]
                 guess=solution.x
             else:raise RuntimeError(f'Longwave exchange failed at HOY {c.HOY[h]}: {radiation_error} W/m2')
+            if binary_engine:
+                residual,data=evaluate(solution.x,full=True)
+                if np.max(np.abs(residual))>balance_tolerance_w_m2:raise RuntimeError('Final response residual differs')
+                engine.end_step()
+            if net is not None:net.refresh(int(c.HOY[h]),E)
             ta=float(solution.x[0]);tg=solution.x[1:]
             next_state={'air_c':ta,'ground_c':tg.tolist(),
                 'buildings':[b['final_state'] for b in data['building']],
@@ -321,7 +339,7 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
     # Write state/output before committing caller objects, so failed persistence is explicit.
     if net is not None:
         net.save()
-    metadata={'engine':'cetus-surface-7-reconstructed','implementation':'8.2','exposed_fractions':dict(zip(NAMES,fractions.tolist())),
+    metadata={'engine':'cetus-surface-7-reconstructed','implementation':'8.3','engine_protocol':engine_protocol,'exposed_fractions':dict(zip(NAMES,fractions.tolist())),
         'warmup':warmup_history,'warmup_method':'periodic first forcing day; Aitken guesses, full-day residual acceptance' if warmup_acceleration else 'periodic first forcing day','chronological_spinup':spinup_info,'report_initial_state':report_initial_state,'final_state':state,'assumptions':audits[0],'radiation_network':net.meta if net is not None else None,
         'green_roofs':'Green-roof evaporation is disabled in this coupled path; no roof moisture model.',
         'ground_receiver':'Area-weighted exposed ground temperature used by buildings; returned ground exchanges distributed by exposed area.',

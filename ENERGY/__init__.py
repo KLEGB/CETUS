@@ -27,3 +27,14 @@ __all__ = [
     "runEnergySimulation",
     "run_energy_simulation",
 ]
+
+# V8.3 explicit interfaces (legacy aliases above remain unchanged).
+from .surface import SurfaceEngine
+__version__ = '8.3'
+__all__ += ['SurfaceEngine', 'BinarySurfaceEngine']
+
+def __getattr__(name):
+    if name == "BinarySurfaceEngine":
+        from .surface_binary import BinarySurfaceEngine
+        return BinarySurfaceEngine
+    raise AttributeError(name)
