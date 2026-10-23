@@ -28,9 +28,9 @@ __all__ = [
     "run_energy_simulation",
 ]
 
-# V8.3 explicit interfaces (legacy aliases above remain unchanged).
+# V8.4 explicit interfaces (legacy aliases above remain unchanged).
 from .surface import SurfaceEngine
-__version__ = '8.3'
+__version__ = '8.4'
 __all__ += ['SurfaceEngine', 'BinarySurfaceEngine']
 
 def __getattr__(name):

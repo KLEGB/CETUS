@@ -115,3 +115,63 @@ func TestBinaryConcurrentWorkspaces(t *testing.T) {
 		}
 	}
 }
+
+func TestCandidateCacheUpgradeAndWarmStart(t *testing.T) {
+	p := example()
+	topology, n := makeTopology(p)
+	p.Initial = make([]float64, n)
+	for i := range p.Initial {
+		p.Initial[i] = 20
+	}
+	old := append([]float64(nil), p.Initial...)
+	s := binarySession{models: []prepared{{p: p, t: topology, n: n}}, step: []Input{p}, stepID: 10, warmStart: true, cacheEnabled: true}
+	b := new(bytes.Buffer)
+	putID(b, 10)
+	putU(b, 0)
+	putU(b, 0)
+	putU(b, 0)
+	putU(b, 1)
+	putF(b, 20.0001)
+	if _, e := s.handle(7, b.Bytes()); e != nil {
+		t.Fatal(e)
+	}
+	solves := s.models[0].solves
+	candidate := s.candidate
+	get := new(bytes.Buffer)
+	putID(get, 10)
+	putID(get, candidate)
+	putU(get, 2)
+	putU(get, 1)
+	putU(get, 0)
+	if _, e := s.handle(6, get.Bytes()); e != nil {
+		t.Fatal(e)
+	}
+	if s.models[0].solves != solves {
+		t.Fatal("upgrade solved nodes again")
+	}
+	if _, e := s.handle(7, b.Bytes()); e != nil {
+		t.Fatal(e)
+	}
+	if s.models[0].hits != 1 {
+		t.Fatal("same hour was not cached")
+	}
+	if _, e := s.handle(6, get.Bytes()); e == nil {
+		t.Fatal("old candidate accepted")
+	}
+	next := new(bytes.Buffer)
+	putID(next, 10)
+	putU(next, 0)
+	putU(next, 0)
+	putU(next, 0)
+	putU(next, 1)
+	putF(next, 20.0002)
+	if _, e := s.handle(7, next.Bytes()); e != nil {
+		t.Fatal(e)
+	}
+	if s.models[0].w.warmStarts == 0 {
+		t.Fatal("warm initial guess unused")
+	}
+	if !reflect.DeepEqual(old, p.Initial) {
+		t.Fatal("physical old state changed")
+	}
+}

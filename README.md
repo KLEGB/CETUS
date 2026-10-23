@@ -1,23 +1,25 @@
-# CETUS V8.3
+# CETUS V8.4
 
-V8.3 使用原生二进制 Energy 通信、不可变时间步输入缓存及分级响应，减少耦合试算的数据转换和重复结果构造；保留 V8.2 物理方程、光学先验、精度与收敛阈值。表面交换射线按约 40,000 条合批，长波建筑发射项在根求解内复用，点级结果每个最终物理小时刷新一次。
+V8.4 在 V8.3 的二进制 Energy 接口基础上，增加候选解复用、非线性迭代初值复用、长波仿射响应和重复残差复用。保留物理方程、float64、材料先验、采样、视因数网络和收敛阈值。
 
 安装：`pip install -r requirements.txt`。
 
 ```bash
-python examples/run_v8_3.py scene.shp weather.epw --output outputs/my_case
+python examples/run_v8_4.py scene.shp weather.epw --output outputs/my_case
 ```
 
-此示例默认 7 天顺序 spinup；效率报告为与 V8.2 相同的最热日、周期预热后 24 小时，额外顺序 spinup 为 0。二者计算时长不可直接混用。
+示例默认 7 天顺序 spinup。效率报告使用与 V8.3 一致的最热日、8 轮周期预热和正式 24 小时，额外顺序 spinup 为 0；两种运行时长不可混用。
 
-- 当前表面引擎：`ENERGY/bin/CetusSurfaceEnergy.exe`（Windows x64）或 `CetusSurfaceEnergy`（Linux x64）。其余 Energy 程序用于历史兼容。
-- 权威接口：`docs/CetusSurfaceEnergy_V8.3_Interface.md`，包含旧 JSON 入口、新二进制接口和转换工具。
-- 耦合入口：`ENERGY.coupled.simulate_coupled(..., engine_protocol='binary')`；`'json'` 保留兼容模式。
-- 模型物理协议名仍为 cetus-surface-7，RAD 缓存协议仍为 cetus-rad-network-8，传输协议为 CES3 v1。
-- Windows/Linux 引擎已附带；其他平台或源码修改后需 Go 1.22+，可通过 CETUS_GO 指定编译器。
+当前引擎：ENERGY/bin/CetusSurfaceEnergy.exe（Windows x64）或 CetusSurfaceEnergy（Linux x64）。其余 Energy 程序保留历史兼容。
 
-测试：`PYTHONPATH=. python -m unittest discover -s tests -v`；进入 `ENERGY/surface_engine` 运行 `go test -race ./...`。
+接口权威说明：docs/CetusSurfaceEnergy_V8.4_Interface.md；继承字段和旧操作见 V8.3_Interface。BinarySurfaceEngine 支持候选标识、get_result、profile 和可选 warm_start/candidate_cache。旧 JSON SurfaceEngine 保留。
 
-模型光学先验仍见 `ENERGY/optical_priors.json`。单建筑层/表面数量可变；各建筑的表面与状态数组顺序必须遵守注册布局。求解不会自动将候选状态提交为下一时间步。
+CETUS 耦合新增可控项：energy_warm_start、candidate_cache、root_memoization、longwave_mode；详情见接口说明。新版本数值迭代初值及运算顺序变化可能导致末位差异，应按误差和残差验证，不能要求文件哈希一致。
 
-压缩包内 benchmark 目录包含效率报告、原始计时、逐时对照、测试记录、复现脚本及本次用户输入。模块本体不含运行缓存、结果或 Git 历史。基线为 KLEGB/CETUS 提交 `1c748918862fb418261dc7c69aab1718c751c04a`。
+测试：`PYTHONPATH=. python -m unittest discover -s tests -v`；进入 ENERGY/surface_engine 运行 `go test -race ./...`。
+
+Linux/Windows x64 引擎已附带。Windows 为交叉编译，本次效率及运行验证均在 Linux 上完成。其他平台或源码修改后需 Go 1.22+，可通过 CETUS_GO 指定编译器。
+
+热工物理协议仍为 cetus-surface-7，RAD 缓存协议仍为 cetus-rad-network-8，二进制协议 CES3 v1 新增操作 5–9。新客户端需要匹配的 V8.4 引擎。
+
+压缩包 benchmark 目录含本轮效率报告、原始计时、数值差异、测试和消融记录及复现输入。基线为此前交付的 V8.3；V8.3 更早的源码基线为 KLEGB/CETUS 提交 1c748918862fb418261dc7c69aab1718c751c04a。

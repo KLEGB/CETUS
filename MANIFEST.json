@@ -1,7 +1,8 @@
 {
-  "version": "8.3",
-  "baseline_commit": "1c748918862fb418261dc7c69aab1718c751c04a",
-  "transport": "CES3 v1",
+  "version": "8.4",
+  "baseline": "Previously delivered CETUS V8.3",
+  "baseline_distribution_sha256": "86433e42c7ded93b88bd521ab92bf2d29393b77d95eebaad6eb57b4b112af47f",
+  "transport": "CES3 v1 with opcodes 5-9",
   "files": {
     "CETUS/test.py": {
       "bytes": 1977,
@@ -20,8 +21,8 @@
       "sha256": "eecd489437f775ffd96fd6df5c8b355a9a92b9a9e60c4a7ec47260db4db7dad7"
     },
     "CETUS/README.md": {
-      "bytes": 1930,
-      "sha256": "2573de9aa6dd5a3955da55c6e952980d478709b614958e68b8e80eb58b7514ab"
+      "bytes": 1978,
+      "sha256": "47d15d45db78501da79c9c967ff5f4d20844e93380b41d6843fe3467eb3a669a"
     },
     "CETUS/requirements.txt": {
       "bytes": 225,
@@ -44,12 +45,16 @@
       "sha256": "a453d1efcf1752e03eb2f2e0eb6f09ec44c771673a1a9720b228086ed654111c"
     },
     "CETUS/tests/test_binary.py": {
-      "bytes": 5357,
-      "sha256": "8a92c58b29e8290f8e75a2e771b3d1b01f4fc43e66b73f8ff706d1fb676ffd45"
+      "bytes": 5499,
+      "sha256": "359842b83f88acfddf784818fa7deebc9fb1d150057f92079ebe699fc748fe44"
     },
     "CETUS/tests/test_independent_solver.py": {
       "bytes": 3063,
       "sha256": "22718be565030be29ded42eb81f7d025c9abde17692b9b914991b980963f57fd"
+    },
+    "CETUS/tests/test_optimizations.py": {
+      "bytes": 3808,
+      "sha256": "582b9c44160b96f24cdd6d05b85998f7d4e783ef66982638650ba0d8b338735a"
     },
     "CETUS/SITE/processSHP.py": {
       "bytes": 16750,
@@ -88,8 +93,8 @@
       "sha256": "6d2b88b1d68f7f0a6e364f6332305c1921b9dccf901318064c5c96708283564a"
     },
     "CETUS/RAD/network.py": {
-      "bytes": 19954,
-      "sha256": "17f833e6a11482a7389da8e6d514a5f14f78c8e221f6db45eb5eb7d7acd13427"
+      "bytes": 21990,
+      "sha256": "2e4b0279614c7f665e5824d4cece23862c5f130739589ae4f28e5dd2c290aae4"
     },
     "CETUS/RAD/schedule_writer.py": {
       "bytes": 2946,
@@ -119,6 +124,10 @@
       "bytes": 1996,
       "sha256": "03f5dadf921dfbffb088b16fe8c811359e98870209d17dd6c0727f3fe7022d3c"
     },
+    "CETUS/docs/CetusSurfaceEnergy_V8.4_Interface.md": {
+      "bytes": 6630,
+      "sha256": "86859e1be68de49c6ab19102b337000ef14bf5b2133d0fa43dd7e335148b69aa"
+    },
     "CETUS/docs/V8.3_Changes.md": {
       "bytes": 1187,
       "sha256": "a888a92b674aa6851021dd653aeff1a232aa0ef925ab52d19db66c9b1f6584c7"
@@ -144,16 +153,16 @@
       "sha256": "75d31c6627eea21e012bf6ad4f680fd0cd222691e5f5743f98315eff86c9d343"
     },
     "CETUS/ENERGY/surface_codec.py": {
-      "bytes": 8871,
-      "sha256": "094172697312e896b2024f29636841e8cdcbfb66d77a4e4d7fcb0ea9d878f179"
+      "bytes": 10012,
+      "sha256": "aa451fb6401b1fb69c9d3262b171b1aa83d6807dde9b8f783f01e202f3dee300"
     },
     "CETUS/ENERGY/surface_binary.py": {
-      "bytes": 3947,
-      "sha256": "adfd0cb168545483208711a1e000479a9d495c3daf733a5e4428ba6a8b29c87f"
+      "bytes": 5242,
+      "sha256": "3ece21578afa925b4a6dc3ceac85b2c59ed9cf4fd29acbdb397d97b967bab635"
     },
     "CETUS/ENERGY/__init__.py": {
       "bytes": 1148,
-      "sha256": "25635c44766cba5e48e02b5e38f3796b0cf3accd64094c3ee106a98de9cb2ad5"
+      "sha256": "a7de14396328e4be1ff0e257317ab69b13128923530fb80f82eb751d5aa4ee21"
     },
     "CETUS/ENERGY/model.py": {
       "bytes": 47619,
@@ -172,8 +181,8 @@
       "sha256": "a3ef32b677a7c51b26b406b8ddd643c9a258ac4c53d75bd9701c68db36030c2b"
     },
     "CETUS/ENERGY/coupled.py": {
-      "bytes": 25464,
-      "sha256": "272f5bfab2ac4a0028c4572087225e502eb225fc8d4c414f83eb15cedafbb551"
+      "bytes": 27273,
+      "sha256": "727723b95fd3e35441793aff6b47442fc22d73d72c0676a35920f5654138887b"
     },
     "CETUS/ENERGY/neighborhood.py": {
       "bytes": 48278,
@@ -243,13 +252,17 @@
       "bytes": 6694,
       "sha256": "00c5a13fb3269aeeadc66d50335cdbfab63910de6c98bbd4ca0527dc8febcfe2"
     },
-    "CETUS/examples/run_v8_3.py": {
+    "CETUS/examples/run_v8_4.py": {
       "bytes": 3528,
-      "sha256": "e6a7c3c6931a13aefb37c22b9e9944b203e0ceafad9d9325f4f695dd7ac8a743"
+      "sha256": "8a56144ff66d4d2ddf3a7c95a71b4ec2a56736e2396f93745d398c6e19c79be3"
+    },
+    "CETUS/examples/run_v8_3.py": {
+      "bytes": 178,
+      "sha256": "118b6520bcdeb10e34be58b8a759e0798d2b0a2cb29afcbdf12026326006e848"
     },
     "CETUS/examples/run_v8_2.py": {
-      "bytes": 186,
-      "sha256": "63b270241c13ef96a953c24c313f96bf151454e2e2d30aa06d83e4ded56d8531"
+      "bytes": 178,
+      "sha256": "118b6520bcdeb10e34be58b8a759e0798d2b0a2cb29afcbdf12026326006e848"
     },
     "CETUS/RAD/data/sun_position.csv": {
       "bytes": 3859,
@@ -309,19 +322,19 @@
     },
     "CETUS/ENERGY/bin/CetusSurfaceEnergy.sha256": {
       "bytes": 65,
-      "sha256": "06267926209dd1029d140606db895f13a4401171f7868e272a7a67a6835f82e1"
+      "sha256": "35f673a03b2969792fd5da60c07cdb77bc52d674314d10ebaaa8edba9e9c38b4"
     },
     "CETUS/ENERGY/bin/CetusSurfaceEnergy.exe": {
-      "bytes": 3030528,
-      "sha256": "bf01c140c3646902f056205b50635cd79a71ee05a0be19df50ed60fb3faeafe5"
+      "bytes": 3063808,
+      "sha256": "9f6d84346229795c33c5cbf19e68ad030b37a38d1ac5a7e5143997b8c630f0b4"
     },
     "CETUS/ENERGY/bin/CetusSurfaceEnergy": {
-      "bytes": 2913861,
-      "sha256": "ea2b3013cdec2a8ef91804e5d2dea245d41b41bca63ed24793b88625282e8237"
+      "bytes": 2947092,
+      "sha256": "a13eaf37126caf7cafad06fe0caa48a14eb380ddbf6a351e26270c3ea0cfd54f"
     },
     "CETUS/ENERGY/bin/Energy-Readme.md": {
-      "bytes": 12297,
-      "sha256": "1b9793c2fdde3f9e8049d922b3baa139e261a17395b34946cb0fed58e34a5ca7"
+      "bytes": 12459,
+      "sha256": "7f72a19947a4c1ff0f84b709535fc80821041b74ea076b7005382158b4b25bea"
     },
     "CETUS/ENERGY/bin/MoosasEnergy-legacy.exe": {
       "bytes": 2357760,
@@ -333,7 +346,7 @@
     },
     "CETUS/ENERGY/bin/CetusSurfaceEnergy.exe.sha256": {
       "bytes": 65,
-      "sha256": "06267926209dd1029d140606db895f13a4401171f7868e272a7a67a6835f82e1"
+      "sha256": "35f673a03b2969792fd5da60c07cdb77bc52d674314d10ebaaa8edba9e9c38b4"
     },
     "CETUS/ENERGY/bin/README.md": {
       "bytes": 14449,
@@ -352,20 +365,20 @@
       "sha256": "fa7687a85034a25f90ce34ca9dbe0731d4e9172317a4c64bd8cc416345f85652"
     },
     "CETUS/ENERGY/surface_engine/binary.go": {
-      "bytes": 9247,
-      "sha256": "d81375c705348aa2942e72ba7137a324228c51295880486f78e7266946b3db89"
+      "bytes": 14390,
+      "sha256": "bb9f9622a05c0ae8356423c495c7af1198c7cf8f0e8b1e81bb8d3992569fa406"
     },
     "CETUS/ENERGY/surface_engine/main.go": {
-      "bytes": 19003,
-      "sha256": "cc9f57f5bebc95312fe1edfc28d5dcc771e0c76ddf8862f7d1e5181b772a43e0"
+      "bytes": 20087,
+      "sha256": "40bdd230b8ebff72b7c2588f3dfa392a384a780593654049df2696048cfa86b7"
     },
     "CETUS/ENERGY/surface_engine/main_test.go": {
       "bytes": 5423,
       "sha256": "3aa88218f90a7434f5afb7ae64380e27340e2c93fb1f8318f86c6ac2c3016682"
     },
     "CETUS/ENERGY/surface_engine/binary_test.go": {
-      "bytes": 2685,
-      "sha256": "650e78044b3ad314a89bbd23483289d07830d10da323a4e2866bf9b9e49298e1"
+      "bytes": 4103,
+      "sha256": "6c87e1f532b672d161935b3e2d6938b0ddcd23d280e1686cea8a24f46bd6611a"
     },
     "CETUS/ENERGY/surface_engine/go.mod": {
       "bytes": 37,

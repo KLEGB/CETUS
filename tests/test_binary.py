@@ -18,7 +18,7 @@ class BinaryTests(unittest.TestCase):
         return [p,q]
     def test_levels_dynamic_fields_and_immutable_state(self):
         models=self.models();batch=[{'hours':[copy.deepcopy(p['hours'][12])]} for p in models];hours=[b['hours'][0] for b in batch]
-        with SurfaceEngine() as j,BinarySurfaceEngine() as b:
+        with SurfaceEngine() as j,BinarySurfaceEngine(warm_start=False) as b:
             j.configure(models);b.configure(models);b.begin_step(batch)
             baseline=j.request(batch,use_models=True)
             got=b.evaluate(hours,response_level='full',return_state=True)
@@ -44,7 +44,7 @@ class BinaryTests(unittest.TestCase):
             with self.assertRaises(ValueError):b.evaluate(hours)
     def test_validation_error_and_recovery(self):
         models=self.models();batch=[{'hours':[p['hours'][0]]} for p in models]
-        with BinarySurfaceEngine() as b:
+        with BinarySurfaceEngine(warm_start=False) as b:
             b.configure(models);b.begin_step(batch)
             with self.assertRaises(ValueError):b.evaluate([{'air_c':float('nan')}] * 2,dynamic_fields=('air_c',))
             with self.assertRaises(ValueError):b._send(3,struct.pack('<QIIII',999,0,0,0,0))
@@ -62,11 +62,11 @@ class BinaryTests(unittest.TestCase):
             magic,v,op,rid,n=HEADER.unpack_from(run.stdout,pos);pos+=HEADER.size;data=run.stdout[pos:pos+n];pos+=n
             self.assertNotEqual(op,65535,data)
             if op==3:answers.append(decode_evaluate(data,models,'full',True))
-        with BinarySurfaceEngine() as b:
+        with BinarySurfaceEngine(warm_start=False) as b:
             b.configure(models);b.begin_step(batch)
             self.assertEqual(answers[0],b.evaluate([p['hours'][0] for p in models],response_level='full',return_state=True))
     def test_binary_json_coupled_equivalence(self):
         from ENERGY.coupled import simulate_coupled
-        a=simulate_coupled(small(),preheat=0,show_progress=False,engine_protocol='json')
-        b=simulate_coupled(small(),preheat=0,show_progress=False,engine_protocol='binary')
+        a=simulate_coupled(small(),preheat=0,show_progress=False,engine_protocol='json',longwave_mode='direct',energy_warm_start=False)
+        b=simulate_coupled(small(),preheat=0,show_progress=False,engine_protocol='binary',longwave_mode='direct',energy_warm_start=False)
         self.assertEqual(a['hourly'],b['hourly']);self.assertEqual(a['coupled']['final_state'],b['coupled']['final_state'])

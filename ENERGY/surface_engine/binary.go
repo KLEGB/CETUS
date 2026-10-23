@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"time"
 )
 
 const maxFrame = 256 << 20
@@ -85,15 +86,25 @@ func overrideHour(r *reader, h Hour, mask uint32) Hour {
 }
 
 type prepared struct {
-	p Input
-	t []topology
-	n int
-	w workspace
+	p                      Input
+	t                      []topology
+	n                      int
+	w                      workspace
+	lastHour               Hour
+	lastOut                OutputHour
+	lastX                  []float64
+	lastLevel              int
+	valid                  bool
+	solves, hits, rebuilds uint64
 }
 type binarySession struct {
-	models []prepared
-	step   []Input
-	stepID uint64
+	models                                                   []prepared
+	step                                                     []Input
+	stepID                                                   uint64
+	warmStart, cacheEnabled                                  bool
+	candidate, serial                                        uint64
+	evalCalls, getCalls                                      uint64
+	decodeSeconds, solveSeconds, formatSeconds, writeSeconds float64
 }
 
 func (s *binarySession) handle(op uint16, raw []byte) ([]byte, error) {
@@ -101,6 +112,7 @@ func (s *binarySession) handle(op uint16, raw []byte) ([]byte, error) {
 	b := new(bytes.Buffer)
 	switch op {
 	case 1:
+		s.candidate = 0
 		count := int(r.u())
 		if count < 1 || count > len(raw)/8 {
 			return nil, fmt.Errorf("invalid model count")
@@ -128,6 +140,12 @@ func (s *binarySession) handle(op uint16, raw []byte) ([]byte, error) {
 			preparedModels[i] = prepared{p: p, t: t, n: n}
 		}
 		s.models = preparedModels
+		s.evalCalls = 0
+		s.getCalls = 0
+		s.decodeSeconds = 0
+		s.solveSeconds = 0
+		s.formatSeconds = 0
+		s.writeSeconds = 0
 		s.step = nil
 		s.stepID = 0
 		putU(b, uint32(len(models)))
@@ -169,9 +187,16 @@ func (s *binarySession) handle(op uint16, raw []byte) ([]byte, error) {
 			return nil, fmt.Errorf("trailing step bytes")
 		}
 		s.step = step
+		s.candidate = 0
+		for i := range s.models {
+			s.models[i].valid = false
+			s.models[i].w.guess = nil
+		}
 		s.stepID = id
 		putID(b, id)
-	case 3:
+	case 3, 7:
+		s.evalCalls++
+		decodeStart := time.Now()
 		id := r.id()
 		level := int(r.u())
 		states := r.u()
@@ -194,6 +219,8 @@ func (s *binarySession) handle(op uint16, raw []byte) ([]byte, error) {
 		if r.p != len(raw) {
 			return nil, fmt.Errorf("trailing evaluate bytes")
 		}
+		s.decodeSeconds += time.Since(decodeStart).Seconds()
+		solveStart := time.Now()
 		results := make([]Output, len(batch))
 		errors := make([]error, len(batch))
 		jobs := make(chan int, len(batch))
@@ -208,55 +235,100 @@ func (s *binarySession) handle(op uint16, raw []byte) ([]byte, error) {
 				defer wg.Done()
 				for i := range jobs {
 					m := &s.models[i]
-					h, x, e := hourPrepared(batch[i], batch[i].Hours[0], batch[i].Initial, m.t, m.n, level, &m.w)
+					h, x, e := s.solveBuilding(m, batch[i], level)
 					results[i] = Output{Protocol: batch[i].Protocol, Hours: []OutputHour{h}, Final: x}
 					errors[i] = e
 				}
 			}()
 		}
 		wg.Wait()
-		air, ground, res := 0., 0., 0.
-		for i, o := range results {
-			if errors[i] != nil {
-				return nil, fmt.Errorf("building %d: %w", i, errors[i])
-			}
-			h := o.Hours[0]
-			air += h.Convection + h.Ventilation + h.OutdoorHVAC
-			ground += h.GroundLW + h.GroundContact
-			res = math.Max(res, math.Abs(h.Residual))
-		}
-		putU(b, uint32(len(results)))
-		putF(b, air)
-		putF(b, ground)
-		putF(b, res)
-		if aggregation == 1 {
-			for _, o := range results {
-				h := o.Hours[0]
-				putF(b, h.Convection+h.Ventilation+h.OutdoorHVAC)
-				putF(b, h.GroundLW+h.GroundContact)
+		s.solveSeconds += time.Since(solveStart).Seconds()
+		for i, e := range errors {
+			if e != nil {
+				s.candidate = 0
+				return nil, fmt.Errorf("building %d: %w", i, e)
 			}
 		}
-		for _, o := range results {
-			h := o.Hours[0]
-			if level == 1 {
-				putU(b, uint32(len(h.Surfaces)))
-				for _, v := range h.Surfaces {
-					putF(b, v.Te)
-				}
-			}
-			if level == 2 {
-				writeFull(b, h)
-			}
-			if states == 1 {
-				putArray(b, o.Final)
-			}
+		s.serial++
+		s.candidate = s.serial
+		formatStart := time.Now()
+		if op == 7 {
+			putID(b, s.candidate)
 		}
+		writeResults(b, results, level, states, aggregation)
+		s.formatSeconds += time.Since(formatStart).Seconds()
+	case 5:
+		id := r.id()
+		if len(raw) != 8 || s.step == nil || id != s.stepID || s.candidate == 0 {
+			return nil, fmt.Errorf("no current candidate")
+		}
+		putID(b, s.candidate)
+	case 6:
+		id := r.id()
+		candidate := r.id()
+		level := int(r.u())
+		states := r.u()
+		aggregation := r.u()
+		if len(raw) != 28 || id != s.stepID || s.step == nil || candidate == 0 || candidate != s.candidate || level > 2 || states > 1 || aggregation > 1 {
+			return nil, fmt.Errorf("stale candidate or invalid result options")
+		}
+		s.getCalls++
+		formatStart := time.Now()
+		results := make([]Output, len(s.models))
+		for i := range s.models {
+			m := &s.models[i]
+			if !m.valid {
+				return nil, fmt.Errorf("no saved solution")
+			}
+			h, x, e := s.promote(m, s.step[i], level)
+			if e != nil {
+				return nil, e
+			}
+			results[i] = Output{Protocol: m.p.Protocol, Hours: []OutputHour{h}, Final: x}
+		}
+		writeResults(b, results, level, states, aggregation)
+		s.formatSeconds += time.Since(formatStart).Seconds()
+	case 8:
+		warm, cache := r.u(), r.u()
+		if len(raw) != 8 || warm > 1 || cache > 1 {
+			return nil, fmt.Errorf("invalid solver options")
+		}
+		s.warmStart = warm == 1
+		s.cacheEnabled = cache == 1
+		s.candidate = 0
+		for i := range s.models {
+			s.models[i].valid = false
+			s.models[i].w.guess = nil
+		}
+		putU(b, warm)
+		putU(b, cache)
+	case 9:
+		if len(raw) != 0 {
+			return nil, fmt.Errorf("profile takes no payload")
+		}
+		solves, hits, rebuilds, iters, warm, fallback := uint64(0), uint64(0), uint64(0), uint64(0), uint64(0), uint64(0)
+		for _, m := range s.models {
+			solves += m.solves
+			hits += m.hits
+			rebuilds += m.rebuilds
+			iters += m.w.iterations
+			warm += m.w.warmStarts
+			fallback += m.w.fallbacks
+		}
+		for _, v := range []uint64{s.evalCalls, s.getCalls, solves, hits, rebuilds, iters, warm, fallback} {
+			putID(b, v)
+		}
+		for _, v := range []float64{s.decodeSeconds, s.solveSeconds, s.formatSeconds, s.writeSeconds} {
+			putF(b, v)
+		}
+
 	case 4:
 		id := r.id()
 		if len(raw) != 8 || id != s.stepID {
 			return nil, fmt.Errorf("stale step")
 		}
 		s.step = nil
+		s.candidate = 0
 		putID(b, id)
 	default:
 		return nil, fmt.Errorf("unknown opcode")
@@ -277,7 +349,7 @@ func frameWrite(out io.Writer, op uint16, id uint64, raw []byte) error {
 	return e
 }
 func binaryMain() {
-	s := new(binarySession)
+	s := &binarySession{warmStart: true, cacheEnabled: true}
 	for {
 		var h [24]byte
 		if _, e := io.ReadFull(os.Stdin, h[:]); e != nil {
@@ -305,9 +377,11 @@ func binaryMain() {
 			op = 65535
 			data = []byte(e.Error())
 		}
+		writeStart := time.Now()
 		if frameWrite(os.Stdout, op, id, data) != nil {
 			return
 		}
+		s.writeSeconds += time.Since(writeStart).Seconds()
 	}
 }
 
@@ -386,4 +460,101 @@ func readModel(r *reader) Input {
 	}
 	p.Initial = r.array()
 	return p
+}
+
+func writeResults(b *bytes.Buffer, results []Output, level int, states, aggregation uint32) {
+	air, ground, res := 0., 0., 0.
+	for _, o := range results {
+
+		h := o.Hours[0]
+		air += h.Convection + h.Ventilation + h.OutdoorHVAC
+		ground += h.GroundLW + h.GroundContact
+		res = math.Max(res, math.Abs(h.Residual))
+	}
+	putU(b, uint32(len(results)))
+	putF(b, air)
+	putF(b, ground)
+	putF(b, res)
+	if aggregation == 1 {
+		for _, o := range results {
+			h := o.Hours[0]
+			putF(b, h.Convection+h.Ventilation+h.OutdoorHVAC)
+			putF(b, h.GroundLW+h.GroundContact)
+		}
+	}
+	for _, o := range results {
+		h := o.Hours[0]
+		if level == 1 {
+			putU(b, uint32(len(h.Surfaces)))
+			for _, v := range h.Surfaces {
+				putF(b, v.Te)
+			}
+		}
+		if level == 2 {
+			writeFull(b, h)
+		}
+		if states == 1 {
+			putArray(b, o.Final)
+		}
+	}
+}
+
+func sameArray(a, b []float64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, v := range a {
+		if math.Float64bits(v) != math.Float64bits(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+func sameHour(a, b Hour) bool {
+	av := [...]float64{a.Air, a.Ground, a.SkyIR, a.Internal, a.Heat, a.Cool, a.Vent, a.Transmitted, a.GlassInward}
+	bv := [...]float64{b.Air, b.Ground, b.SkyIR, b.Internal, b.Heat, b.Cool, b.Vent, b.Transmitted, b.GlassInward}
+	for i, v := range av {
+		if math.Float64bits(v) != math.Float64bits(bv[i]) {
+			return false
+		}
+	}
+	return sameArray(a.Irr, b.Irr) && sameArray(a.Ho, b.Ho) && sameArray(a.NetworkIR, b.NetworkIR)
+}
+
+func (s *binarySession) promote(m *prepared, p Input, level int) (OutputHour, []float64, error) {
+	if level > m.lastLevel {
+		h, x, e := outputAt(p, m.lastHour, p.Initial, m.t, m.n, level, m.lastX, m.lastOut.HVAC)
+		if e != nil {
+			return h, x, e
+		}
+		m.lastOut = h
+		m.lastLevel = level
+		m.rebuilds++
+	}
+	return m.lastOut, m.lastX, nil
+}
+func (s *binarySession) solveBuilding(m *prepared, p Input, level int) (OutputHour, []float64, error) {
+	if s.cacheEnabled && m.valid && sameHour(m.lastHour, p.Hours[0]) {
+		m.hits++
+		return s.promote(m, p, level)
+	}
+	m.w.useGuess = s.warmStart
+	m.solves++
+	h, x, e := hourPrepared(p, p.Hours[0], p.Initial, m.t, m.n, level, &m.w)
+	if e != nil && s.warmStart && len(m.w.guess) > 0 {
+		m.w.guess = nil
+		m.w.fallbacks++
+		m.solves++
+		h, x, e = hourPrepared(p, p.Hours[0], p.Initial, m.t, m.n, level, &m.w)
+	}
+	if e == nil {
+		m.lastHour = p.Hours[0]
+		m.lastOut = h
+		m.lastX = x
+		m.lastLevel = level
+		m.valid = true
+	} else {
+		m.valid = false
+	}
+	return h, x, e
 }

@@ -19,7 +19,7 @@ FIELDS=SCALARS+ARRAYS
 LEVELS={'totals':0,'coupling':1,'full':2}
 MODEL_SCALARS=('dt_s', 'initial_c', 'cooling_cop', 'heating_cop', 'internal_radiant_fraction', 'solar_floor_fraction')
 MODEL_SURFACE_FIELDS=('area_m2', 'resistance_m2k_w', 'thermal_mass_j_m2k', 'reflectance', 'transmittance', 'emissivity', 'hi_w_m2k', 'ho_w_m2k', 'sky_view', 'ground_view', 'ground_contact_w_m2k', 'absorbed_inside_fraction')
-OPS={'register_model':1,'begin_step':2,'evaluate':3,'end_step':4}
+OPS={'register_model':1,'begin_step':2,'evaluate':3,'end_step':4,'candidate_id':5,'get_result':6,'solver_options':8,'profile':9}
 OUTPUT_FIELDS=('radiant_c', 'longwave_to_network_w', 'zone_c', 'hvac_w', 'electricity_w', 'convection_to_air_w', 'ventilation_to_air_w', 'hvac_to_air_w', 'longwave_to_ground_w', 'contact_to_ground_w', 'longwave_to_sky_w', 'storage_w', 'balance_residual_w')
 SURFACE_FIELDS=('structure_into_interior_w', 'exterior_convection_to_air_w', 'interior_convection_to_zone_w', 'interior_longwave_to_surface_w', 'transmitted_solar_deposited_w', 'exterior_contact_to_ground_w', 'external_net_lw_w', 'body_balance_residual_w', 'exterior_c', 'interior_c', 'storage_w', 'storage_delta_kwh', 'incident_w', 'reflected_w', 'absorbed_w', 'transmitted_w')
 
@@ -119,7 +119,14 @@ def encode_request(request):
     if op==1:return op,encode_models(request['models'])
     if op==2:return op,encode_step(request['batch'],request['step_id'])
     if op==3:return op,encode_evaluate(request['hours'],request['step_id'],request.get('response_level','totals'),request.get('return_state',False),request.get('aggregation','batch'),request.get('dynamic_fields',FIELDS))
-    return op,struct.pack('<Q',request['step_id'])
+    if op in (4,5):return op,struct.pack('<Q',request['step_id'])
+    if op==6:
+        aggregation=request.get('aggregation','batch')
+        if aggregation not in ('batch','building'):raise ValueError('Unknown aggregation')
+        return op,struct.pack('<QQIII',request['step_id'],request['candidate_id'],LEVELS[request.get('response_level','full')],int(request.get('return_state',True)),int(aggregation=='building'))
+    if op==8:return op,struct.pack('<II',int(request.get('warm_start',True)),int(request.get('candidate_cache',True)))
+    if op==9:return op,b''
+    raise ValueError('Unknown operation')
 
 def convert_cli():
     p=argparse.ArgumentParser(description='Convert CES3 request JSON to binary frames or decode an evaluate response')
@@ -136,7 +143,11 @@ def convert_cli():
             if magic!=MAGIC or version!=1 or n>MAX_FRAME or pos+n>len(data):raise ValueError('Invalid/truncated frame')
             payload=data[pos:pos+n];pos+=n
             if op==65535:results.append({'request_id':rid,'error':payload.decode()})
-            elif op==3:results.append({'request_id':rid,**decode_evaluate(payload,models,a.level,a.state,a.aggregation)})
+            elif op in (3,6):results.append({'request_id':rid,**decode_evaluate(payload,models,a.level,a.state,a.aggregation)})
+            elif op==5:results.append({'request_id':rid,'candidate_id':struct.unpack('<Q',payload)[0]})
+            elif op==9:
+                keys=('evaluate_requests','get_result_requests','building_solves','building_cache_hits','diagnostic_rebuilds','nonlinear_iterations','warm_starts','cold_fallbacks','decode_validate_seconds','parallel_solve_seconds','result_format_seconds','frame_write_seconds')
+                results.append({'request_id':rid,'profile':dict(zip(keys,struct.unpack('<8Q4d',payload)))})
             else:results.append({'request_id':rid,'op':op,'ack':True})
         Path(a.output).write_text(json.dumps(results,ensure_ascii=False,allow_nan=False,indent=2))
 if __name__=='__main__':convert_cli()

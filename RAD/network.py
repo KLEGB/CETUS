@@ -271,3 +271,41 @@ def build_network(n,sky_matrix,*,sample=.3,radius_m=200.,ground_reflectance=.2,g
     meta['sw_reflection_escape_wh']=meta['sw_reflection_sent_wh']-meta['sw_reflection_received_wh']
     if show_progress:print(f'RAD network: {F.nnz//2} links, one SW reflection complete',flush=True)
     return RadiationNetwork(pts,norm,areas,owners,groups,sky,F,G,direct,reflected,hoy,meta)
+
+class LongwaveResponse:
+    """Exact affine radiosity response for fixed building emission and sky.
+
+    Instantiate once per outer radiation iteration. Basis vectors are cached
+    with the already fixed optical network; old physical states are untouched.
+    """
+    def __init__(self,net,models,temperatures,sky_ir):
+        self.net=net
+        if net._lw_solve is None:
+            net.longwave_boundary(models,temperatures,[(1.,20.)],sky_ir,20.)
+        if not hasattr(net,'_response_basis'):
+            n=len(net.group_area);unit=np.zeros(n);unit[-1]=1.
+            jg=net._lw_solve(unit);ja=net._lw_solve((1-net._eps_group)*net.far)
+            net._response_basis=(jg,ja,net.group_exchange@jg,net.group_exchange@ja)
+        self.jg,self.ja,self.ig,self.ia=net._response_basis
+        fixed=net.emission(models,temperatures,[(1.,20.)]);fixed[-1]=0.
+        self.sky=net.group_sky*sky_ir
+        self.j0=net._lw_solve(fixed+(1-net._eps_group)*self.sky)
+        self.i0=net.group_exchange@self.j0
+        groups=[];floor=[];pair=[];offsets=[0]
+        for b,m in enumerate(models):
+            for s in m['surfaces']:
+                groups.append(2*b+int(s['kind'] in ('roof','skylight')))
+                floor.append(s['kind']=='floor')
+                pair.append(not(s['kind'] in ('window','skylight') and net.meta['ignore_window_longwave']))
+            offsets.append(len(groups))
+        self.groups=np.asarray(groups,int);self.floor=np.asarray(floor,bool);self.pair=np.asarray(pair,float)
+        self.slices=list(zip(offsets[:-1],offsets[1:]))
+    def boundary(self,ground,air):
+        net=self.net
+        lg=net.meta['ground_emissivity']*SIGMA*sum(w*(t+273.15)**4 for w,t in ground)
+        la=SIGMA*(air+273.15)**4
+        j=self.j0+self.jg*lg+self.ja*la
+        incoming=self.i0+self.ig*lg+self.ia*la
+        env=self.sky+net.far*la
+        flat=env[self.groups]+incoming[self.groups]*self.pair;flat[self.floor]=0.
+        return [flat[a:b].tolist() for a,b in self.slices],float(incoming[-1]+env[-1]),j,incoming

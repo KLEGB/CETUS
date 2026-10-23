@@ -270,38 +270,26 @@ func hourLevel(p Input, h Hour, old []float64, t []topology, n, level int) (Outp
 }
 
 type workspace struct {
-	a [][]float64
-	b []float64
+	a                                 [][]float64
+	b                                 []float64
+	useGuess                          bool
+	guess                             []float64
+	iterations, warmStarts, fallbacks uint64
 }
 
 func hourPrepared(p Input, h Hour, old []float64, t []topology, n, level int, w *workspace) (OutputHour, []float64, error) {
 	z, rad := n-2, n-1
 	x := append([]float64(nil), old...)
-	sky := math.Pow(h.SkyIR/sigma, .25) - 273.15
-	solar := h.Transmitted
-	var sumArea, floorArea float64
-	for k, s := range p.Surfaces {
-		solar += s.Area * h.Irr[k] * s.Tau
-		sumArea += s.Area
-		if s.Kind == "floor" {
-			floorArea += s.Area
-		}
-	}
-	weights := make([]float64, len(t))
-	for k, s := range p.Surfaces {
-		weights[k] = s.Area / sumArea
-		if floorArea > 0 {
-			weights[k] = (1 - p.SolarFloor) * s.Area / sumArea
-			if s.Kind == "floor" {
-				weights[k] += p.SolarFloor * s.Area / floorArea
-			}
-		}
-	}
+	sky, solar, weights := hourForcing(p, h)
 	if w == nil {
 		w = new(workspace)
 	}
 	if len(w.b) != n {
 		w.a, w.b = matrix(n)
+	}
+	if w.useGuess && len(w.guess) == n {
+		x = append([]float64(nil), w.guess...)
+		w.warmStarts++
 	}
 	var qhvac float64
 	// The free-running trial and thermostat trial share the immutable old state.
@@ -310,6 +298,7 @@ func hourPrepared(p Input, h Hour, old []float64, t []topology, n, level int, w 
 	for mode := 0; mode < 2; mode++ {
 		converged := false
 		for iter := 0; iter < 100; iter++ {
+			w.iterations++
 			a, b := w.a, w.b
 			for i := range a {
 				clear(a[i])
@@ -393,6 +382,41 @@ func hourPrepared(p Input, h Hour, old []float64, t []topology, n, level int, w 
 			break
 		}
 	}
+	out, state, err := hourOutput(p, h, old, t, n, level, x, qhvac, sky, solar, weights)
+	if err == nil && w.useGuess {
+		w.guess = append(w.guess[:0], state...)
+	}
+	return out, state, err
+}
+func hourForcing(p Input, h Hour) (float64, float64, []float64) {
+	sky := math.Pow(h.SkyIR/sigma, .25) - 273.15
+	solar := h.Transmitted
+	var sumArea, floorArea float64
+	for k, s := range p.Surfaces {
+		solar += s.Area * h.Irr[k] * s.Tau
+		sumArea += s.Area
+		if s.Kind == "floor" {
+			floorArea += s.Area
+		}
+	}
+	weights := make([]float64, len(p.Surfaces))
+	for k, s := range p.Surfaces {
+		weights[k] = s.Area / sumArea
+		if floorArea > 0 {
+			weights[k] = (1 - p.SolarFloor) * s.Area / sumArea
+			if s.Kind == "floor" {
+				weights[k] += p.SolarFloor * s.Area / floorArea
+			}
+		}
+	}
+	return sky, solar, weights
+}
+func outputAt(p Input, h Hour, old []float64, t []topology, n, level int, x []float64, qhvac float64) (OutputHour, []float64, error) {
+	sky, solar, weights := hourForcing(p, h)
+	return hourOutput(p, h, old, t, n, level, x, qhvac, sky, solar, weights)
+}
+func hourOutput(p Input, h Hour, old []float64, t []topology, n, level int, x []float64, qhvac, sky, solar float64, weights []float64) (OutputHour, []float64, error) {
+	z, rad := n-2, n-1
 	out := OutputHour{Zone: x[z], Radiant: x[rad], HVAC: qhvac}
 	if qhvac >= 0 {
 		out.Electricity = qhvac / p.COPh
