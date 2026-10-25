@@ -7,13 +7,13 @@
 ## 两个应用
 
 ```bash
-python Energy.py --input neighborhood.json --output building_results.bin
-python EnergyUnpack.py building_results.bin building_results.json
+python -m ENERGY --input neighborhood.json --output building_results.bin
+python -m ENERGY.unpack building_results.bin building_results.json
 ```
 
 Energy 应用包含 Neighborhood JSON 读取与校验，默认走现有 CES3 二进制求解接口。原生 Energy 也继续支持原 JSON 输入协议；已有 JSON 调试入口保留兼容。EnergyUnpack 是独立、仅依赖 Python 标准库的应用，不导入 Energy、NumPy、SciPy、几何库或求解器，不需调用可执行引擎。解包一次性导出所有建筑参数和全部结果，不提供筛选接口。
 
-`Energy.py` 还在结果旁保存 `<结果名>_neighborhood.json`，其中继续包含城市 Climate 结果；建筑结果只有 `building_result_file` 引用。城市侧 CSV、守恒审计、状态检查点位于 `<结果名>_city/`。输入文件中的相对外部路径以输入 JSON 所在目录解析。
+`ENERGY/cli.py` 还在结果旁保存 `<结果名>_neighborhood.json`，其中继续包含城市 Climate 结果；建筑结果只有 `building_result_file` 引用。城市侧 CSV、守恒审计、状态检查点位于 `<结果名>_city/`。输入文件中的相对外部路径以输入 JSON 所在目录解析。
 
 ## Python 调用
 

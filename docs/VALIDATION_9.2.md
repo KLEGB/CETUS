@@ -39,7 +39,7 @@ CER 档案包含建筑参数副本、解析后的模型、最终逐时边界、�
 - 编辑 Neighborhood 后旧档案参数不变；
 - Neighborhood 保存/加载仍保留 Climate 城市结果和可编辑建筑参数；
 - 原生二进制结果及群组汇总的读取、参数单位与布局一致性；
-- `python -S EnergyUnpack.py` 在没有第三方模拟依赖时完整导出；
+- `python -S -m ENERGY.unpack` 在没有第三方模拟依赖时完整导出；
 - 不读取 SHA、不调用编译器，缺失可执行文件明确报错；
 - 预热超过上限时发出 RuntimeWarning 并继续，预热不打印；最后一轮保留实际求解状态，耗尽轮数的检查点可继续使用；
 - 正式求解失败时不发布完整档案，城市对象不被失败结果覆盖；
@@ -58,8 +58,8 @@ Go 物理源码和随包内核未改动，本轮没有声称重新编译或重�
 
 ```bash
 python -m pytest -q tests
-python scripts/validate_92_case.py --shp scene.shp --epw weather.epw --output outputs/92
-python EnergyUnpack.py outputs/92/coupled/building_results.bin outputs/92/all_buildings.json
+python test/scripts/validate_92_case.py --shp scene.shp --epw weather.epw --output outputs/92
+python -m ENERGY.unpack outputs/92/coupled/building_results.bin outputs/92/all_buildings.json
 ```
 
 当前两应用接口及文件结构见 INTERFACE_9.2.md。本次测量原始数值见 benchmark_9.2.json。

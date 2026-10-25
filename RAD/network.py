@@ -172,7 +172,8 @@ class RadiationNetwork:
             flux_w_m2=np.stack([self.direct,self.reflected,self.longwave],axis=-1).astype(np.float32),
             F_data=F.data,F_indices=F.indices,F_indptr=F.indptr,G_data=G.data,G_indices=G.indices,G_indptr=G.indptr,
             metadata=np.array(json.dumps(self.meta,allow_nan=False)))
-        with open(temporary,'rb') as stream:os.fsync(stream.fileno())
+        # Windows FlushFileBuffers requires a handle opened for writing.
+        with open(temporary,'r+b') as stream:os.fsync(stream.fileno())
         import zipfile
         with zipfile.ZipFile(temporary) as archive:
             if archive.testzip() is not None:raise RuntimeError('RAD cache CRC verification failed')

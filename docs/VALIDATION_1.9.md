@@ -78,12 +78,12 @@ Case 240 与 220 对比，检验加入 200 W 连续显热源的作用；Case 420
 
 ```bash
 pip install -r requirements.txt
-pip install -r requirements-validation.txt
+pip install -r test/requirements.txt
 PYTHONPATH=. python -m pytest -q tests
-python examples/run_v1_9_standalone.py
-python scripts/validate_19_case.py --shp scene.shp --epw weather.epw --output outputs/on --mode on
-python scripts/validate_19_case.py --shp scene.shp --epw weather.epw --output outputs/off --mode off --cache outputs/on/network.rad.npz
-python scripts/replay_19_annual.py /path/to/validation_results/ashrae
+python test/examples/run_v1_9_standalone.py
+python test/scripts/validate_19_case.py --shp scene.shp --epw weather.epw --output outputs/on --mode on
+python test/scripts/validate_19_case.py --shp scene.shp --epw weather.epw --output outputs/off --mode off --cache outputs/on/network.rad.npz
+python test/scripts/replay_19_annual.py /path/to/validation_results/ashrae
 ```
 
 要从原始规范材料重新构建全年输入，运行 `validate_19_ashrae.py --standard-files ... --recovered ... --output ...`。其两个输入目录分别指向官方材料解压目录和交付测试包中的 `recovered_inputs`。脚本不会自动修改参数来追赶示例结果。

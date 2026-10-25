@@ -66,7 +66,7 @@ $$0.43\times0.4263157895+0.52\times0.4263157895=0.43\times0.7+0.52\times0.2=0.40
 
 完整源码位于包内 CETUS_1.9；输入 SHP/EPW 沿用既有算例。
 ```bash
-python CETUS_1.9/scripts/run_19_glass_comparison.py --shp case/53695_3092_LCZ1_2B.shp --epw case/CHN_FJ_Longyan.589270_TMYx.epw --output outputs_reproduce
+python CETUS_1.9/test/scripts/run_19_glass_comparison.py --shp case/53695_3092_LCZ1_2B.shp --epw case/CHN_FJ_Longyan.589270_TMYx.epw --output outputs_reproduce
 ```
 
 energy_comparison.csv 为四组汇总；hourly_comparison.csv 为开启控制时的配对逐时功率密度和温度；每组目录保留 summary.json、hourly.csv 与 audit.json，开启控制还保留 daylighting_hourly.csv。图提供 PNG、SVG 和矢量 PDF。

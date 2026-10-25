@@ -148,3 +148,6 @@ cython_debug/
 /outputs/weather/
 /ENERGY/bin/CetusSurfaceEnergy*
 /RAD/bin/rad/MoosasRad
+/outputs/view/
+/outputs/energy92/
+/test/output/

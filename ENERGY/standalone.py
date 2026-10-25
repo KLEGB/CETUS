@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 from .surface import build_surface_input
 from .surface_binary import BinarySurfaceEngine
-from result_store import ResultWriter
+from .result_store import ResultWriter
 
 
 def simulate_surface(building, climates, *, irradiance_by_day=None, options=None,

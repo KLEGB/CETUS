@@ -56,7 +56,7 @@ options = {'daylighting': {
 }}
 ```
 
-独立 Energy：`from ENERGY import simulate_surface`；调用 `simulate_surface(building, climates, irradiance_by_day=..., options=options)`。使用标量参数创建 `BuildingInstance`，不调用 `fromAOI()`。`ExteriorWallArea/ExteriorWindowArea` 为典型楼层面积，屋面、天窗和地面面积为全建筑口径。完整例见 `examples/run_v1_9_standalone.py`。
+独立 Energy：`from ENERGY import simulate_surface`；调用 `simulate_surface(building, climates, irradiance_by_day=..., options=options)`。使用标量参数创建 `BuildingInstance`，不调用 `fromAOI()`。`ExteriorWallArea/ExteriorWindowArea` 为典型楼层面积，屋面、天窗和地面面积为全建筑口径。完整例见 `test/examples/run_v1_9_standalone.py`。
 
 可单独调用 `estimate_daylighting` 处理任意长度短波序列。`facade_shortwave_w_m2` 与可选 `facade_reflected_w_m2` 在这个低层函数中是两个可加分量。上层 `build_surface_input` 接收总量及带 primary/reflected 后缀的可选分量，且核对闭合。
 

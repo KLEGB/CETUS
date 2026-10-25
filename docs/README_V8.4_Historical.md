@@ -5,7 +5,7 @@ V8.4 在 V8.3 的二进制 Energy 接口基础上，增加候选解复用、非�
 安装：`pip install -r requirements.txt`。
 
 ```bash
-python examples/run_v8_4.py scene.shp weather.epw --output outputs/my_case
+python test/examples/run_v8_4.py scene.shp weather.epw --output outputs/my_case
 ```
 
 示例默认 7 天顺序 spinup。效率报告使用与 V8.3 一致的最热日、8 轮周期预热和正式 24 小时，额外顺序 spinup 为 0；两种运行时长不可混用。

@@ -140,10 +140,10 @@ options = {
 ## 复现附件测试与四案例回归
 
 ```bash
-python scripts/run_coupled_case.py \
-  --input-zip validation/coupled_input/53695_3092_LCZ1_2B.zip \
+python test/scripts/run_coupled_case.py \
+  --input-zip test/validation/coupled_input/53695_3092_LCZ1_2B.zip \
   --output outputs/coupled_run
-python scripts/validate_surface.py
+python test/scripts/validate_surface.py
 ```
 
 附件脚本使用 EPW 最热日开始的三天、建筑抽样种子42、10%精确射线与其他建筑插值。

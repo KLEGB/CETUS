@@ -386,7 +386,7 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
             if not converged:
                 import warnings
                 warnings.warn(f'Warmup did not converge within {max_preheat} cycles (last change {change:.6g} K, tolerance {warmup_tolerance_k} K); continuing simulation.',RuntimeWarning)
-        from result_store import ResultWriter
+        from .result_store import ResultWriter
         resolved_spectral=None
         if spectral is not None:
             resolved_spectral=dict(bands=spectral.bands,face_names=spectral.face_names,face_groups=spectral.groups,

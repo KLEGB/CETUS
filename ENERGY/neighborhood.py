@@ -247,6 +247,8 @@ class Neighborhood:
     _energy_results: list[dict[str, object]] | None = None
     building_result_file: str | None = None
     energy_options: dict = field(default_factory=dict)
+    # Optional local HTML editor metadata. Physics and command-line callers ignore it.
+    view_state: dict = field(default_factory=dict)
 
     @property
     def radiation_network(self):
@@ -1032,6 +1034,7 @@ class Neighborhood:
             "_height_field": self._height_field,
             "building_result_file": self.building_result_file,
             "energy_options": copy.deepcopy(self.energy_options),
+            "view_state": copy.deepcopy(self.view_state),
         }
 
     @classmethod
@@ -1056,6 +1059,7 @@ class Neighborhood:
             _height_field=str(data.get("_height_field", "height")),
             building_result_file=data.get("building_result_file"),
             energy_options=copy.deepcopy(data.get("energy_options",{})),
+            view_state=copy.deepcopy(data.get("view_state", {})) if isinstance(data.get("view_state", {}), dict) else {},
         )
         for b in neighborhood.buildings:b.clear_results()
         return neighborhood
@@ -1079,7 +1083,13 @@ class Neighborhood:
     @classmethod
     def loadJSON(cls, input_path: str | Path) -> "Neighborhood":
         """Load one neighborhood from a JSON file."""
-        return cls.from_dict(json.loads(Path(input_path).read_text(encoding="utf-8")))
+        source = Path(input_path).resolve()
+        neighborhood = cls.from_dict(json.loads(source.read_text(encoding="utf-8")))
+        for name in ("_shp", "_epw", "_weather_csv", "_mtx", "_rad", "building_result_file"):
+            value = getattr(neighborhood, name)
+            if value and not Path(value).is_absolute():
+                setattr(neighborhood, name, str((source.parent / value).resolve()))
+        return neighborhood
 
 
 if __name__ == "__main__":

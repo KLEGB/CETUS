@@ -20,8 +20,8 @@ Python 测试 7 项全部通过：
 - 独立 SciPy 非线性残差求解与 Go 节点温度对照，以及缓存/精简试算与完整 IO 的一致性。
 
 独立 SciPy 检查使用三个太阳辐照度条件，最大节点温差 **3.031×10⁻¹⁰ K**。
-源测试在 `tests/` 与 `ENERGY/surface_engine/main_test.go`，运行记录在
-`validation/rebuilt_results/`。
+源测试在 `test/` 与 `test/native/energy/main_test.go`，运行记录在
+`test/validation/rebuilt_results/`。
 
 ## 可恢复 ASHRAE 140 四案例对照
 
@@ -39,10 +39,10 @@ Python 测试 7 项全部通过：
 PCC 下限沿用 R5 记录的 .879；负荷为整热区逐小时显热能量，供暖正、制冷负。
 全部案例最大建筑收支残差低于 **4.55×10⁻⁷ W**。
 
-![四案例对比](../validation/rebuilt_results/comparison.png)
+![四案例对比](../test/validation/rebuilt_results/comparison.png)
 
-这些数据和原始转换脚本保存在 `validation/ashrae_recovered/` 与
-`scripts/validate_surface.py`，压缩输入使用 gzip，SHA-256 清单保存在 `validation/`。
+这些数据和原始转换脚本保存在 `test/validation/ashrae_recovered/` 与
+`test/scripts/validate_surface.py`，压缩输入使用 gzip，SHA-256 清单保存在 `test/validation/`。
 
 本次对照有明确边界：
 
@@ -73,7 +73,7 @@ PCC 下限沿用 R5 记录的 .879；负荷为整热区逐小时显热能量，�
 | UHI 侧建筑短波 | 严格为 0 |
 | 相对 EPW 平均增温 | 3.0709 K |
 
-逐时数据、参数抽样清单、预热历史及可恢复的期末状态保存在 `validation/coupled_case/`。
+逐时数据、参数抽样清单、预热历史及可恢复的期末状态保存在 `test/validation/coupled_case/`。
 完整逐建筑表面时间序列由复现脚本输出为 `outputs/.../building_hourly.json`；
 大体积辐射缓存和可再生成的完整逐建筑结果不放入源码版本库。
 

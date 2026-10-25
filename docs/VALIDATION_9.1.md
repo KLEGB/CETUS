@@ -91,10 +91,10 @@ UHI 为冠层气温减气象背景气温，再对 72 小时求平均。屋面为
 
 ## 交付内容与复现
 
-模块目录 CETUS_9.1 中的 README 和 docs/PHYSICS_9.1.md 为当前入口；configs/ 提供五组 JSON；scripts/run_91_validation.py 重跑全部场景和独立平板。结果目录包含五组 summary.json、逐时场地 CSV、逐波段 CSV、守恒审计、配对汇总和 PNG/SVG/PDF 图。建筑完整热状态 JSON 较大，未重复放入本次紧凑结果包；复现脚本会自动生成。
+模块目录 CETUS_9.1 中的 README 和 docs/PHYSICS_9.1.md 为当前入口；ENERGY/configs/ 提供五组 JSON；test/scripts/run_91_validation.py 重跑全部场景和独立平板。结果目录包含五组 summary.json、逐时场地 CSV、逐波段 CSV、守恒审计、配对汇总和 PNG/SVG/PDF 图。建筑完整热状态 JSON 较大，未重复放入本次紧凑结果包；复现脚本会自动生成。
 
 ```bash
-python CETUS_9.1/scripts/run_91_validation.py --shp case/53695_3092_LCZ1_2B.shp --epw case/CHN_FJ_Longyan.589270_TMYx.epw --output outputs_reproduce
+python CETUS_9.1/test/scripts/run_91_validation.py --shp case/53695_3092_LCZ1_2B.shp --epw case/CHN_FJ_Longyan.589270_TMYx.epw --output outputs_reproduce
 ```
 
 科学依据与具体近似见 PHYSICS_9.1.md 中 Raman et al. (2014), doi:10.1038/nature13883；Jeon & Shin (2020), doi:10.1038/s41598-020-70105-y。

@@ -1,6 +1,6 @@
 """Externalize historical steady/legacy entry points after city feedback commit."""
 from pathlib import Path
-from result_store import ResultWriter,plain,read_results
+from .result_store import ResultWriter,plain,read_results
 
 def previous_results(n):
  if not n.building_result_file:return []

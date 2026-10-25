@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CETUS · 城市与建筑协同模拟</title>
+  <link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}">
+  <script defer src="{{ url_for('static',filename='app.js') }}"></script>
+</head>
+<body>
+<header class="masthead"><div class="brand">CETUS<span>城市 · 建筑 · 气候</span></div><div class="header-right"><span class="status-dot"></span><span id="status">本地工作台</span><span class="version">9.2 / VIEW</span></div></header>
+<main>
+  <div class="page-title"><div><p class="eyebrow">NEIGHBORHOOD WORKBENCH</p><h1>从城市形态，到逐时响应。</h1></div><div class="project-label" id="project-label">未保存的方案</div></div>
+  <section class="scene-layout" aria-label="文件导入与建筑地图">
+    <aside class="imports panel">
+      <div class="section-heading"><span class="section-number">01</span><h2>数据与时段</h2></div>
+      <label class="field-label" for="shp-path">建筑轮廓 / SHP</label>
+      <div class="path-line"><input id="shp-path" placeholder="建筑 .shp 文件路径"><button class="icon-button browse" data-kind="shp" data-target="shp-path" title="浏览 SHP">…</button></div>
+      <button class="button secondary full" id="import-shp">导入建筑 <span>↗</span></button>
+      <label class="field-label" for="weather-path">气象 / EPW · CSV</label>
+      <div class="path-line"><input id="weather-path" placeholder="气象文件路径"><button class="icon-button browse" data-kind="weather" data-target="weather-path" title="浏览气象文件">…</button></div>
+      <div class="date-line"><label>起始日期<input id="start-date" value="08-20" placeholder="MM-DD" maxlength="5"></label><span>—</span><label>结束日期<input id="end-date" value="08-20" placeholder="MM-DD" maxlength="5"></label></div>
+      <details class="weather-options"><summary>气象补充设置</summary><label>气候区<input id="climate-zone" type="number" min="1" max="5" placeholder="EPW 自动识别"></label><div class="date-line"><label>纬度（CSV）<input id="latitude" type="number" step="any" value="23.1"></label><label>经度（CSV）<input id="longitude" type="number" step="any" value="113.3"></label></div></details>
+      <button class="button secondary full" id="import-weather">导入气象 <span>↗</span></button>
+      <label class="field-label" for="rad-path">RAD 网络 <span class="muted">可选</span></label>
+      <div class="path-line"><input id="rad-path" placeholder="留空将在计算时自动建网"><button class="icon-button browse" data-kind="rad" data-target="rad-path" title="浏览 RAD 网络">…</button></div>
+      <button class="button quiet full" id="import-rad">载入 / 清空网络</button>
+      <div class="selection-control"><div class="field-label">随机选中建筑</div><div class="random-line"><input id="random-ratio" type="number" min="0" max="1" step="0.05" value="0.3" aria-label="随机选择比例"><button class="button secondary" id="random-select">随机选择</button></div><label class="seed-line">随机种子<input id="seed" type="number" step="1" value="42"></label></div>
+    </aside>
+    <div class="map-panel panel">
+      <div class="map-top"><div><span class="eyebrow">BUILDING INVENTORY</span><h2 id="map-title">城市建筑</h2></div><div class="map-count"><b id="building-count">0</b> 栋 <span class="divider">/</span> <b id="selected-count">0</b> 已选</div></div>
+      <div class="map-stage" id="map-stage"><canvas id="map" aria-label="可点击与框选的建筑地图" tabindex="0"></canvas><div class="map-empty" id="map-empty"><div class="empty-glyph">▱</div><h3>导入一片城市</h3><p>选择 SHP，开始设置建筑与城市参数</p></div><div class="north">N<span>↑</span></div><div class="map-toolbar"><button id="fit-map" title="缩放至全部建筑">适配</button><button id="select-all">全选</button><button id="select-none">清空</button><button id="box-mode" aria-pressed="false">框选</button></div><div class="map-tooltip" id="map-tooltip" hidden></div></div>
+      <div class="map-foot"><div class="legend" id="map-legend"></div><p>点击选择 · Shift 多选 / 框选 · 拖动平移 · 滚轮缩放<br><span>阴影为东南方向、45° 太阳高度的示意</span></p></div>
+    </div>
+  </section>
+  <section class="action-strip" aria-label="保存与计算"><div class="project-actions"><button id="save" class="button secondary">保存方案…</button><button id="load" class="button secondary">载入方案…</button></div><div class="simulation-controls"><label>iteration<input id="iteration" value="x" maxlength="2" title="1–10 为固定轮数；x 按负荷收敛，最多 10 轮"></label><label>sample<input id="sample" type="number" min="0.01" max="1" step="0.05" value="0.3"></label><label>负荷阈值 <span>W/m² GFA</span><input id="load-tolerance" type="number" min="0.000001" step="0.05" value="0.1"></label><button id="calculate" class="button primary">计算 N + F <span>→</span></button><button id="stop" class="button danger" hidden>停止</button></div></section>
+  <section class="settings-layout" aria-label="参数编辑">
+    <div class="urban-panel panel"><div class="section-heading"><span class="section-number">02</span><h2>Urban Settings</h2><span class="badge" id="lcz-badge">LCZ5</span></div><div class="lcz-buttons" id="lcz-buttons"></div><p class="helper" id="lcz-note">切换 LCZ 立即套用城市模板。</p><div id="urban-fields" class="urban-fields"></div><div class="panel-actions"><button class="button secondary" id="urban-apply">应用城市设置</button><button class="text-button" id="restore-urban">恢复最近 LCZx</button></div></div>
+    <div class="building-panel panel"><div class="section-heading"><span class="section-number">03</span><h2>Building Settings</h2><span class="badge" id="edit-count">未选择建筑</span></div><div class="type-buttons" id="type-buttons"></div><div class="edit-intro"><p id="edit-hint">在地图上选择建筑，编辑参数或套用类型模板。</p><span>uncertainty = 标准差；日程采用倍率标准差</span></div><div class="table-scroll"><table class="parameter-table"><thead><tr><th>参数</th><th>value / 日程</th><th>unit</th><th>uncertainty</th></tr></thead><tbody id="building-fields"></tbody></table></div><div class="panel-actions"><p class="helper">仅修改的字段会应用到全部选中建筑。Solar 日程不参与编辑。</p><button id="building-apply" class="button primary" disabled>Apply · 应用到选中建筑</button></div></div>
+  </section>
+  <section class="console-panel panel"><div class="section-heading"><span class="section-number">04</span><h2>运行日志</h2><span id="run-state" class="badge">等待计算</span><button id="clear-log" class="text-button push-right">清空显示</button></div><pre id="logs" aria-live="polite">CETUS 就绪。导入数据并设置方案后，点击“计算 N + F”。
+N：城市 → 建筑；F：完整时段城市 ↔ 建筑交替计算。
+iteration = x：以最大逐时冷负荷变化判断收敛，最多 10 轮。</pre></section>
+  <section id="results" class="results" hidden><div class="result-heading"><div><p class="eyebrow">SIMULATION RESPONSES</p><h2>逐时响应与耦合收敛</h2></div><div id="downloads" class="downloads"></div></div><div class="summary-cards" id="summary-cards"></div><div class="chart-grid"><article class="panel chart-panel"><div class="chart-heading"><h3>城市热通量</h3><select id="flux-mode" aria-label="热通量工况"><option>F</option><option>N</option></select></div><p class="chart-unit">W/m² 场地面积</p><div class="plot" id="flux-chart"></div></article><article class="panel chart-panel"><div class="chart-heading"><h3>逐时空气温度</h3><span>°C</span></div><div class="plot" id="temperature-chart"></div></article><article class="panel chart-panel"><div class="chart-heading"><h3>冷负荷</h3><span>W/m² GFA</span></div><div class="plot" id="load-chart"></div></article><article class="panel chart-panel"><div class="chart-heading"><h3>耦合负荷变化与热平衡残差</h3></div><p class="chart-unit">左：负荷变化 W/m² GFA · 右：城市最大残差 W/m² 场地</p><div class="plot" id="convergence-chart"></div></article></div><div id="result-paths" class="result-paths"></div></section>
+  <footer>CETUS / NEIGHBORHOOD WORKBENCH<span>面积归一化：负荷与电耗按全部建筑 GFA；热通量按场地面积。</span></footer>
+</main>
+<dialog id="schedule-dialog"><form method="dialog"><div class="section-heading"><h2 id="schedule-title">24 小时日程</h2><button class="text-button push-right" value="cancel">关闭 ×</button></div><p class="helper">拖动节点或填写小时值。此曲线每天重复。</p><div class="curve-wrap"><svg id="schedule-curve" viewBox="0 0 840 280" role="img" aria-label="可拖动的 24 小时日程"></svg></div><div id="schedule-values" class="hour-inputs"></div><div class="panel-actions"><label>纵轴上限<input id="schedule-max" type="number" step="any" min="0.001"></label><button id="schedule-confirm" value="default" class="button primary">应用曲线</button></div></form></dialog>
+<dialog id="message-dialog"><div class="section-heading"><h2 id="message-title">提示</h2></div><p id="message-text"></p><div class="panel-actions"><button class="button primary" id="message-close">确定</button></div></dialog>
+<div class="busy-overlay" id="busy" hidden><span class="spinner"></span><p id="busy-text">正在处理…</p></div>
+</body></html>
