@@ -17,16 +17,18 @@ for k in ['EmiGround','EmiRoad','EmiLandscape','EmiWater']:setattr(n.setting,k,.
 started=time.perf_counter();n.radSimulation(sample=a.sample,sky_matrix=a.sky,output_path=a.output/'network.rad.npz')
 (a.output/'site.json').write_text(json.dumps(n.site.to_dict()));(a.output/'settings.json').write_text(json.dumps(n.setting.to_dict()))
 result=n.uhiSimulation(energy_model='v7',preheat=4,energy_kwargs={'output_dir':a.output,'spinup_days':a.spinup_days,'max_preheat':30,'warmup_acceleration':True,'warmup_checkpoint':a.checkpoint,'show_progress':True})
+from result_store import read_results
+external=read_results(result['building_result_file'])
 # Export accepted forcing rather than optical-model proxy irradiation.
 models=[];c=n.climate[0];sol=n.radiation_network.solar(c.HOY)
 for b,building in enumerate(n.buildings):
  m,_=build_surface_input(building,c,irradiance={'facade':sol[2*b],'roof':sol[2*b+1]})
- for h,(x,o,row) in enumerate(zip(m['hours'],building.energyFeedback['surface_v7'],result['hourly'])):
+ for h,(x,o,row) in enumerate(zip(m['hours'],external['buildings'][b]['hours'],result['hourly'])):
   x['air_c']=row['Tair'];x['ground_c']=row['Tsurface'];ref=referenceVelocity(float(c.Velocity[h]),n.site.kS,n.setting.a,n.setting.k)
   x['ho_w_m2k']=[0. if s['kind']=='floor' else 5.8+4.1*ref for s in m['surfaces']]
   x['network_ir_w_m2']=[0. if s['kind']=='floor' else SIGMA*(r['exterior_c']+273.15)**4-r['external_net_lw_w']/(s['area_m2']*s['emissivity']) for s,r in zip(m['surfaces'],o['surfaces'])]
  m['initial_state']=result['coupled']['report_initial_state']['buildings'][b]
  models.append(m)
 (a.output/'models.json').write_text(json.dumps(models,separators=(',',':')))
-summary={'version':'8.4','target_hoy':target,'spinup_days':a.spinup_days,'warmup':result['coupled']['warmup'],'buildings':len(n.buildings),'site_area_m2':n.site.TotalArea,'seconds':time.perf_counter()-started,'maximum_total_residual_w_m2':max(abs(r['total_residual_w_m2']) for r in result['hourly']),'cooling_Wh_m2_site':sum(sum(b.coolingLoad) for b in n.buildings)/n.site.TotalArea,'electricity_Wh_m2_site':sum(sum(h['electricity_w'] for h in b.energyFeedback['surface_v7']) for b in n.buildings)/n.site.TotalArea}
+summary={'version':'8.4','target_hoy':target,'spinup_days':a.spinup_days,'warmup':result['coupled']['warmup'],'buildings':len(n.buildings),'site_area_m2':n.site.TotalArea,'seconds':time.perf_counter()-started,'maximum_total_residual_w_m2':max(abs(r['total_residual_w_m2']) for r in result['hourly']),'cooling_Wh_m2_site':sum(sum(max(-r['hvac_w'],0.) for r in b['hours']) for b in external['buildings'])/n.site.TotalArea,'electricity_Wh_m2_site':sum(sum(h['electricity_w'] for h in b['hours']) for b in external['buildings'])/n.site.TotalArea}
 (a.output/'run.json').write_text(json.dumps(summary,indent=2));print(json.dumps(summary,indent=2),flush=True)

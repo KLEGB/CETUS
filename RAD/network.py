@@ -23,10 +23,8 @@ class Visibility:
     def __init__(self, triangles):
         source=ROOT/'transport_engine/main.go'
         binary=source.parent/('transport.exe' if os.name=='nt' else 'transport')
-        if not binary.exists() or binary.stat().st_mtime<source.stat().st_mtime:
-            go=os.environ.get('CETUS_GO') or shutil.which('go')
-            if not go:raise RuntimeError('Go 1.22+ or CETUS_GO required to build RAD transport')
-            subprocess.run([go,'build','-o',str(binary),'.'],cwd=source.parent,check=True,capture_output=True)
+        if not binary.is_file():raise FileNotFoundError(f'RAD executable not found: {binary}')
+        if os.name!='nt':binary.chmod(binary.stat().st_mode | 0o755)
         self.tmp=tempfile.TemporaryDirectory(prefix='rad_scene_')
         scene=Path(self.tmp.name)/'scene.json';scene.write_text(json.dumps(triangles,separators=(',',':')))
         self.errors=tempfile.TemporaryFile()

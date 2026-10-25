@@ -30,7 +30,7 @@ __all__ = [
 
 # V8.4 explicit interfaces (legacy aliases above remain unchanged).
 from .surface import SurfaceEngine
-__version__ = '8.4'
+__version__ = '1.9.0'
 __all__ += ['SurfaceEngine', 'BinarySurfaceEngine']
 
 def __getattr__(name):
@@ -38,3 +38,9 @@ def __getattr__(name):
         from .surface_binary import BinarySurfaceEngine
         return BinarySurfaceEngine
     raise AttributeError(name)
+
+from .standalone import simulate_surface
+from .daylight import estimate_daylighting, SpectralWindow, SpectralFractions, DaylightConfig
+__all__ += ['simulate_surface','estimate_daylighting','SpectralWindow','SpectralFractions','DaylightConfig']
+
+__version__ = "9.2.0"

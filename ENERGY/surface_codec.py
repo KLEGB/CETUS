@@ -19,7 +19,7 @@ FIELDS=SCALARS+ARRAYS
 LEVELS={'totals':0,'coupling':1,'full':2}
 MODEL_SCALARS=('dt_s', 'initial_c', 'cooling_cop', 'heating_cop', 'internal_radiant_fraction', 'solar_floor_fraction')
 MODEL_SURFACE_FIELDS=('area_m2', 'resistance_m2k_w', 'thermal_mass_j_m2k', 'reflectance', 'transmittance', 'emissivity', 'hi_w_m2k', 'ho_w_m2k', 'sky_view', 'ground_view', 'ground_contact_w_m2k', 'absorbed_inside_fraction')
-OPS={'register_model':1,'begin_step':2,'evaluate':3,'end_step':4,'candidate_id':5,'get_result':6,'solver_options':8,'profile':9}
+OPS={'register_model':1,'begin_step':2,'evaluate':3,'end_step':4,'candidate_id':5,'get_result':6,'solver_options':8,'profile':9,'register_spectral':10}
 OUTPUT_FIELDS=('radiant_c', 'longwave_to_network_w', 'zone_c', 'hvac_w', 'electricity_w', 'convection_to_air_w', 'ventilation_to_air_w', 'hvac_to_air_w', 'longwave_to_ground_w', 'contact_to_ground_w', 'longwave_to_sky_w', 'storage_w', 'balance_residual_w')
 SURFACE_FIELDS=('structure_into_interior_w', 'exterior_convection_to_air_w', 'interior_convection_to_zone_w', 'interior_longwave_to_surface_w', 'transmitted_solar_deposited_w', 'exterior_contact_to_ground_w', 'external_net_lw_w', 'body_balance_residual_w', 'exterior_c', 'interior_c', 'storage_w', 'storage_delta_kwh', 'incident_w', 'reflected_w', 'absorbed_w', 'transmitted_w')
 
@@ -60,7 +60,7 @@ def encode_models(models):
         reject_unknown(m,('protocol','surfaces','hours','initial_state')+MODEL_SCALARS,'model')
         pieces.extend((text(m['protocol']),struct.pack('<6d',*(m.get(k,0.) for k in MODEL_SCALARS)),struct.pack('<I',len(m['surfaces']))))
         for s in m['surfaces']:
-            reject_unknown(s,('name','kind','layers')+MODEL_SURFACE_FIELDS,'surface')
+            reject_unknown(s,('name','kind','layers','longwave_bands')+MODEL_SURFACE_FIELDS,'surface')
             for layer in s.get('layers',[]):reject_unknown(layer,('resistance_m2k_w','capacity_j_m2k'),'layer')
             pieces.extend((text(s['name']),text(s['kind']),struct.pack('<%dd'%len(MODEL_SURFACE_FIELDS),*(s.get(k,0.) for k in MODEL_SURFACE_FIELDS)),struct.pack('<I',len(s.get('layers',[])))))
             pieces.extend(struct.pack('<2d',l['resistance_m2k_w'],l['capacity_j_m2k']) for l in s.get('layers',[]))
@@ -117,6 +117,7 @@ def encode_request(request):
     """Independent JSON-facing adapter. Return (opcode, binary payload)."""
     op=OPS[request['op']]
     if op==1:return op,encode_models(request['models'])
+    if op==10:return op,encode_spectral_models(request['models'])
     if op==2:return op,encode_step(request['batch'],request['step_id'])
     if op==3:return op,encode_evaluate(request['hours'],request['step_id'],request.get('response_level','totals'),request.get('return_state',False),request.get('aggregation','batch'),request.get('dynamic_fields',FIELDS))
     if op in (4,5):return op,struct.pack('<Q',request['step_id'])
@@ -134,7 +135,12 @@ def convert_cli():
     a=p.parse_args()
     if a.mode=='encode':
         req=json.loads(Path(a.input).read_text());requests=req if isinstance(req,list) else [req]
-        data=b''.join(frame(*encode_request(q),request_id=i+1) for i,q in enumerate(requests));Path(a.output).write_bytes(data)
+        expanded=[]
+        for q in requests:
+            expanded.append(q)
+            if q['op']=='register_model' and any(s.get('longwave_bands') for m in q['models'] for s in m['surfaces']):
+                expanded.append({'op':'register_spectral','models':q['models']})
+        data=b''.join(frame(*encode_request(q),request_id=i+1) for i,q in enumerate(expanded));Path(a.output).write_bytes(data)
     else:
         if not a.models:p.error('--models is required for response layout')
         data=Path(a.input).read_bytes();pos=0;results=[];models=json.loads(Path(a.models).read_text())
@@ -150,4 +156,20 @@ def convert_cli():
                 results.append({'request_id':rid,'profile':dict(zip(keys,struct.unpack('<8Q4d',payload)))})
             else:results.append({'request_id':rid,'op':op,'ack':True})
         Path(a.output).write_text(json.dumps(results,ensure_ascii=False,allow_nan=False,indent=2))
+
+
+
+def encode_spectral_models(models):
+    """CES3 explicit extension opcode 10. Existing v1 layouts are unchanged."""
+    pieces=[struct.pack('<I',len(models))]
+    for m in models:
+        pieces.append(struct.pack('<I',len(m['surfaces'])))
+        for s in m['surfaces']:
+            bands=s.get('longwave_bands',[])
+            pieces.append(struct.pack('<I',len(bands)))
+            for b in bands:
+                reject_unknown(b,('lower_um','upper_um','emissivity'),'longwave band')
+                pieces.append(struct.pack('<3d',b['lower_um'],-1. if b['upper_um'] is None else b['upper_um'],b['emissivity']))
+    return b''.join(pieces)
+
 if __name__=='__main__':convert_cli()

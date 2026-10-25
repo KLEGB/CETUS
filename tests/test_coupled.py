@@ -36,15 +36,19 @@ class CoupledTest(unittest.TestCase):
         self.assertLess(max(abs(r['total_residual_w_m2']) for r in full['hourly']),.02)
         self.assertTrue(all(r['building_shortwave_in_uhi_w_m2']==0 for r in full['hourly']))
         self.assertAlmostEqual(sum(full['coupled']['exposed_fractions'].values()),.99)
-        for r in n.buildings[0].energyFeedback['surface_v7']:
+        from result_store import read_results
+        for r in read_results(full['building_result_file'])['buildings'][0]['hours']:
             self.assertLess(abs(r['balance_residual_w']),1e-4)
             self.assertTrue(all(s['storage_w']==0 for s in r['surfaces'] if s['name'] in {'window','skylight'}))
 
-    def test_failed_warmup_is_atomic(self):
-        n=small();before=copy.deepcopy(n.climate[0].Ta)
-        with self.assertRaises(RuntimeError):
-            simulate_coupled(n,preheat=1,max_preheat=1,warmup_tolerance_k=1e-12,show_progress=False)
-        np.testing.assert_array_equal(n.climate[0].Ta,before)
+    def test_warmup_warning_continues(self):
+        import io,contextlib
+        n=small();buffer=io.StringIO()
+        with self.assertWarns(RuntimeWarning), contextlib.redirect_stdout(buffer):
+            result=simulate_coupled(n,preheat=1,max_preheat=1,warmup_tolerance_k=1e-12,show_progress=False)
+        self.assertEqual(buffer.getvalue(),'')
+        self.assertEqual(len(result['hourly']),24)
+        self.assertTrue(Path(result['building_result_file']).is_file())
 
     def test_bad_restart(self):
         n=small();result=simulate_coupled(n,preheat=0,show_progress=False)

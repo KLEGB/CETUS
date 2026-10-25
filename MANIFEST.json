@@ -1,456 +1,497 @@
 {
-  "version": "8.4",
-  "baseline": "Previously delivered CETUS V8.3",
-  "baseline_distribution_sha256": "86433e42c7ded93b88bd521ab92bf2d29393b77d95eebaad6eb57b4b112af47f",
-  "transport": "CES3 v1 with opcodes 5-9",
+  "version": "9.2.0",
+  "thermal_kernel": "unchanged prebuilt 9.1",
+  "executable_sha_check": false,
+  "automatic_compilation": false,
   "files": {
-    "CETUS/test.py": {
-      "bytes": 1977,
-      "sha256": "38f390b3851439d336f2ad68a4ab3706ec8e0ec530eb412818649402130e65ee"
-    },
-    "CETUS/input_2026_05_27.csv": {
-      "bytes": 5129,
-      "sha256": "37446b07e6bd122e8b226a3b5ab2514dcf6bcfff30e7851d10d58334306963aa"
-    },
-    "CETUS/methodology.md": {
-      "bytes": 40451,
-      "sha256": "2cf8840570713713c3b5cc7aed1d9b136276a4a52ab04d0f1372b56436d99724"
-    },
-    "CETUS/.gitignore": {
-      "bytes": 2250,
-      "sha256": "eecd489437f775ffd96fd6df5c8b355a9a92b9a9e60c4a7ec47260db4db7dad7"
-    },
-    "CETUS/README.md": {
-      "bytes": 1978,
-      "sha256": "47d15d45db78501da79c9c967ff5f4d20844e93380b41d6843fe3467eb3a669a"
-    },
-    "CETUS/requirements.txt": {
-      "bytes": 225,
-      "sha256": "4d6739bdfbd9af77a7cea8d862bc2df9ca4cbc521c33d8c1c5f09b39013e2b2b"
-    },
-    "CETUS/input_protocol.md": {
-      "bytes": 5118,
-      "sha256": "5cb2203d5590f431170e51e9aff5b147017a298cd9a23d15dacf06fd4ffe1168"
-    },
-    "CETUS/WEA/epw.py": {
-      "bytes": 18616,
-      "sha256": "b4c271284472061abeea8d4d48bd8a1e7126528c8adcf353728c107a31ab2567"
-    },
-    "CETUS/WEA/__init__.py": {
-      "bytes": 626,
-      "sha256": "bdab67705274f33e4548d9ca450636d1a5d3962c187bfd7691c04b914276f41f"
-    },
-    "CETUS/tests/test_coupled.py": {
-      "bytes": 3993,
-      "sha256": "a453d1efcf1752e03eb2f2e0eb6f09ec44c771673a1a9720b228086ed654111c"
-    },
-    "CETUS/tests/test_binary.py": {
-      "bytes": 5499,
-      "sha256": "359842b83f88acfddf784818fa7deebc9fb1d150057f92079ebe699fc748fe44"
-    },
-    "CETUS/tests/test_independent_solver.py": {
-      "bytes": 3063,
-      "sha256": "22718be565030be29ded42eb81f7d025c9abde17692b9b914991b980963f57fd"
-    },
-    "CETUS/tests/test_optimizations.py": {
-      "bytes": 3808,
-      "sha256": "582b9c44160b96f24cdd6d05b85998f7d4e783ef66982638650ba0d8b338735a"
-    },
-    "CETUS/SITE/processSHP.py": {
-      "bytes": 16750,
-      "sha256": "df1b2f75ed28ae5c966bdf8d6317bb0c2e04aa2fda036b9fb0b59ce9f382963c"
-    },
-    "CETUS/SITE/extract_inx_landuse.py": {
-      "bytes": 8715,
-      "sha256": "ae6057d9f94335d88270b22091cbc09fd389e661b372ecedf88be28e1e98aa70"
-    },
-    "CETUS/SITE/calc_inx_uhi_inputs.py": {
-      "bytes": 12292,
-      "sha256": "4915f20f78718b15c675284b97cb21df139eda1230d21c76fb97aca64739f608"
-    },
-    "CETUS/SITE/process_BLD_SHP.py": {
-      "bytes": 27460,
-      "sha256": "28587b7067c3d8694d06672d567809e9bff6b5cd9802d2e033de684ea876f858"
-    },
-    "CETUS/SITE/transform.py": {
-      "bytes": 13219,
-      "sha256": "83cd5f21107cdd580eefe63b56c9d9ead647f7a14831c6ddd176a27c57dcd50f"
-    },
-    "CETUS/SITE/process_BLD_TIF.py": {
-      "bytes": 11046,
-      "sha256": "91674e095e3524aa0d7c0136ea07e08f3a73e23770de3a4ce6a24006fadd65c7"
-    },
-    "CETUS/SITE/__init__.py": {
-      "bytes": 291,
-      "sha256": "027afbdb434d385a54acccdc773229ecb1bb1638dc3b9e454ca90d03830dd2b6"
-    },
-    "CETUS/SITE/siteInput.py": {
-      "bytes": 13096,
-      "sha256": "afc0f38a3d58fc977bcbce84674846a42b4e4373de3a21576836465e21d48c20"
-    },
-    "CETUS/RAD/generate_building_solar_schedules.py": {
-      "bytes": 2086,
-      "sha256": "6d2b88b1d68f7f0a6e364f6332305c1921b9dccf901318064c5c96708283564a"
-    },
-    "CETUS/RAD/network.py": {
-      "bytes": 21990,
-      "sha256": "2e4b0279614c7f665e5824d4cece23862c5f130739589ae4f28e5dd2c290aae4"
-    },
-    "CETUS/RAD/schedule_writer.py": {
-      "bytes": 2946,
-      "sha256": "b0bc47a4b25547eec3e682409c9bc85586530a5d4f5d2d43d1546bfc6cf13c07"
-    },
-    "CETUS/RAD/__init__.py": {
-      "bytes": 511,
-      "sha256": "f810be73bd866ac63d44166d5a905797df5e4bc3244a79b0852d6c1af7cd9e56"
-    },
-    "CETUS/RAD/rad_engine.py": {
-      "bytes": 5292,
-      "sha256": "a4ff8fea4ceb90ba39a15776ac74f18161ed73252d11196fc07b8fbccc78a233"
-    },
-    "CETUS/RAD/workflow.py": {
-      "bytes": 26574,
-      "sha256": "acfe369e0a4a1edfd817138d7d8568ae3060bcd13a93bf2d008591bff48556cd"
-    },
-    "CETUS/RAD/solar_geometry.py": {
-      "bytes": 11489,
-      "sha256": "7f7d78c5b4496b80a91ca7d60849d409c775e7c47a3ead8e740f40fdc98cdf70"
-    },
-    "CETUS/RAD/weather_epw.py": {
-      "bytes": 642,
-      "sha256": "07d950f3f72892ca5a0590628c3996b7ec4415302fc452ea817419399ee91353"
-    },
-    "CETUS/RAD/sky.py": {
-      "bytes": 1996,
-      "sha256": "03f5dadf921dfbffb088b16fe8c811359e98870209d17dd6c0727f3fe7022d3c"
-    },
-    "CETUS/docs/CetusSurfaceEnergy_V8.4_Interface.md": {
-      "bytes": 6630,
-      "sha256": "86859e1be68de49c6ab19102b337000ef14bf5b2133d0fa43dd7e335148b69aa"
-    },
-    "CETUS/docs/V8.3_Changes.md": {
-      "bytes": 1187,
-      "sha256": "a888a92b674aa6851021dd653aeff1a232aa0ef925ab52d19db66c9b1f6584c7"
-    },
-    "CETUS/docs/energy_v7_validation.md": {
-      "bytes": 5541,
-      "sha256": "562a81ba7903fe76595af7abdcecc5423d3b368bd40139c125d189e743a37fda"
-    },
-    "CETUS/docs/energy_v7_coupling.md": {
-      "bytes": 8724,
-      "sha256": "ddee233e305002fbc2d71319b23c1df758a9ecad89e18f93416565262eaea76a"
-    },
-    "CETUS/docs/CetusSurfaceEnergy_V8.3_Interface.md": {
-      "bytes": 11867,
-      "sha256": "d0a31261472c2cf0f2f0d76a3506d74fd8148689497b7807796a9e21e9dc7ed2"
-    },
-    "CETUS/ENERGY/engine.py": {
-      "bytes": 5616,
-      "sha256": "5a987a2dfb0e05ab840a871e2fda7192d7dba6942e0b8ea91cac215ff3327563"
-    },
-    "CETUS/ENERGY/steady.py": {
-      "bytes": 17071,
-      "sha256": "75d31c6627eea21e012bf6ad4f680fd0cd222691e5f5743f98315eff86c9d343"
-    },
-    "CETUS/ENERGY/surface_codec.py": {
-      "bytes": 10012,
-      "sha256": "aa451fb6401b1fb69c9d3262b171b1aa83d6807dde9b8f783f01e202f3dee300"
-    },
-    "CETUS/ENERGY/surface_binary.py": {
-      "bytes": 5242,
-      "sha256": "3ece21578afa925b4a6dc3ceac85b2c59ed9cf4fd29acbdb397d97b967bab635"
-    },
-    "CETUS/ENERGY/__init__.py": {
-      "bytes": 1148,
-      "sha256": "a7de14396328e4be1ff0e257317ab69b13128923530fb80f82eb751d5aa4ee21"
-    },
-    "CETUS/ENERGY/model.py": {
-      "bytes": 47619,
-      "sha256": "cbb57ca6b4319fd345b78aa5a11ef4ba32c53b9c3716cffb6f3b5a372d485c9b"
-    },
-    "CETUS/ENERGY/readme.md": {
-      "bytes": 14733,
-      "sha256": "121c098b8ac8032b18341b12a29557a75ef0f85d144a2aa0e5dfba33feee198c"
-    },
-    "CETUS/ENERGY/optical_priors.json": {
-      "bytes": 1994,
-      "sha256": "9cdb10d77965a12540bac65e2bb0a21fb9ad9151bd72a2de0d0f46c2c9c51a70"
-    },
-    "CETUS/ENERGY/surface.py": {
-      "bytes": 11653,
-      "sha256": "a3ef32b677a7c51b26b406b8ddd643c9a258ac4c53d75bd9701c68db36030c2b"
-    },
-    "CETUS/ENERGY/coupled.py": {
-      "bytes": 27273,
-      "sha256": "727723b95fd3e35441793aff6b47442fc22d73d72c0676a35920f5654138887b"
-    },
-    "CETUS/ENERGY/neighborhood.py": {
-      "bytes": 48278,
-      "sha256": "8c4c677b86c723a70fd248b3c1cd0691c64ff617403bca95ef5bcf47c788de93"
-    },
-    "CETUS/UHI/vapor.py": {
-      "bytes": 5792,
-      "sha256": "28ba2e9d8ef62b0bb95c8ca7468d19a89448af08ebd131646f1385830fa49770"
-    },
-    "CETUS/UHI/shortwave.py": {
-      "bytes": 5127,
-      "sha256": "1faa3a1f1db3d61d68982171e7795b4667c43cb378950286032ed39c6cd4a75c"
-    },
-    "CETUS/UHI/calculator.py": {
-      "bytes": 8871,
-      "sha256": "eed8ad04fe1b86041edf2ce496d3c7a5468a9a982ddd2c89df326051b0fa6d20"
-    },
-    "CETUS/UHI/heatBalance.py": {
-      "bytes": 15351,
-      "sha256": "7b5db8454b1b815702b2f1a37d3a39e52f16718dbf049ce6c29835f099d4b4ca"
-    },
-    "CETUS/UHI/raster_calculator.py": {
-      "bytes": 19968,
-      "sha256": "fc9695225234da18acbc9f915ee628d0be8bc22966d2f3ad750ce8831f05bd78"
-    },
-    "CETUS/UHI/longwave.py": {
-      "bytes": 2776,
-      "sha256": "72b5a55a481ece446d4e9d7ce8e8827e33dd7daaa2c47ef7a5560983a1fdc8b7"
-    },
-    "CETUS/UHI/anthropic.py": {
-      "bytes": 3129,
-      "sha256": "ce5aaedda1cca09e8f402fd1ad4db8412ba9a8272b1cb857c81815fbafc7465d"
-    },
-    "CETUS/UHI/constant.py": {
-      "bytes": 2802,
-      "sha256": "700f08fd65aa0bf8d7732df5fbe6185262c04f13dd3ac301a2097f111a8fbba2"
-    },
-    "CETUS/UHI/__init__.py": {
-      "bytes": 819,
-      "sha256": "b657f3f32235e87c7c57d50f0264fce2ca0ea9ce329d0d1bbdb8a0d33842a6f0"
-    },
-    "CETUS/UHI/aT.py": {
-      "bytes": 5208,
-      "sha256": "4793e5507f76f57e36f6950225522bcbd8e31b4a6baec47d8a90dc79bc5aa8d0"
-    },
-    "CETUS/UHI/csv_calculator.py": {
-      "bytes": 15022,
-      "sha256": "a65dc46e779fc6f27020126cc9176f010da1d2a81a872af312215a1b80597c59"
-    },
-    "CETUS/UHI/activity.py": {
-      "bytes": 2904,
-      "sha256": "e0e2420a6d51afbde1f33da064c9dfe3618e002f720a9b6d436576de89d82e4b"
-    },
-    "CETUS/UHI/sky_vector.csv": {
-      "bytes": 3869,
-      "sha256": "fc08b72f9d9fe188d505bd59919893a6bf8058a0baf8316294b4e7574b744de5"
-    },
-    "CETUS/UHI/modelInfo.py": {
-      "bytes": 56136,
-      "sha256": "4e1312ede1c926410aa0ae059fa943e9bf5c3feadfbaf269c6eee9f061e89978"
-    },
-    "CETUS/scripts/validate_surface.py": {
-      "bytes": 5513,
-      "sha256": "5761e466eee3b401fe6ad4123f0a9f04f5fe09b858196ebd18837ff1f4558ccf"
-    },
-    "CETUS/scripts/run_coupled_case.py": {
-      "bytes": 6694,
-      "sha256": "00c5a13fb3269aeeadc66d50335cdbfab63910de6c98bbd4ca0527dc8febcfe2"
-    },
-    "CETUS/examples/run_v8_4.py": {
-      "bytes": 3528,
-      "sha256": "8a56144ff66d4d2ddf3a7c95a71b4ec2a56736e2396f93745d398c6e19c79be3"
-    },
-    "CETUS/examples/run_v8_3.py": {
-      "bytes": 178,
-      "sha256": "118b6520bcdeb10e34be58b8a759e0798d2b0a2cb29afcbdf12026326006e848"
-    },
-    "CETUS/examples/run_v8_2.py": {
-      "bytes": 178,
-      "sha256": "118b6520bcdeb10e34be58b8a759e0798d2b0a2cb29afcbdf12026326006e848"
-    },
-    "CETUS/RAD/data/sun_position.csv": {
-      "bytes": 3859,
-      "sha256": "bd876edefb489a18ec75b355f553523dbdcdf9f4cf99a3e802285f9f2ac0aed1"
-    },
-    "CETUS/RAD/transport_engine/main.go": {
-      "bytes": 3631,
-      "sha256": "1e364134f2068d610ade059ba001ccb5b65bd91309cc42aa46bbb0bcf6d62e7c"
-    },
-    "CETUS/RAD/transport_engine/transport.exe": {
-      "bytes": 3156992,
-      "sha256": "d95e22b1b3853f5882f55058cfa003353a8fffc84aa9852f7c16550bd879cbff"
-    },
-    "CETUS/RAD/transport_engine/main_test.go": {
-      "bytes": 318,
-      "sha256": "4747307737a52848fd5b010180a7f9f4fae0ae67a4e84e8ceec2158949b37c1f"
-    },
-    "CETUS/RAD/transport_engine/transport": {
-      "bytes": 3040584,
-      "sha256": "c465699d817ad5ab6b1294965d2b6fd719667959486a64292b98d92d43a6516a"
-    },
-    "CETUS/RAD/transport_engine/go.mod": {
-      "bytes": 42,
-      "sha256": "4b5527e014f1c83705219d045e2025bb7f837a36d1535d765fe073afc52a86bd"
-    },
-    "CETUS/RAD/bin/weather/gendaymtx.exe": {
-      "bytes": 30720,
-      "sha256": "6ff64dcc80f319e8cd725fdc71328ecc3ed9a51d4a270a5221a06a8afd7990c6"
-    },
-    "CETUS/RAD/bin/weather/-n": {
-      "bytes": 576165,
-      "sha256": "6e47f34544cd5b0753577e67ef9843196483183fdcff9e996b22588733517eec"
-    },
-    "CETUS/RAD/bin/weather/epw2wea.exe": {
-      "bytes": 13824,
-      "sha256": "e8b16233467b99fc5b00f48b33fbc62ea7f24818ee6d8e918e7f104cc2b1671f"
-    },
-    "CETUS/RAD/bin/rad/MoosasRad.exe": {
-      "bytes": 2081792,
-      "sha256": "25fedba5c3cfd396ef64f5b07654367f21688573bb52a3f4898f062a281e4094"
-    },
-    "CETUS/RAD/bin/rad/MoosasRad_pre_bvh.exe": {
-      "bytes": 2081792,
-      "sha256": "25fedba5c3cfd396ef64f5b07654367f21688573bb52a3f4898f062a281e4094"
-    },
-    "CETUS/RAD/bin/rad/MoosasRad.go": {
-      "bytes": 7909,
-      "sha256": "3d07840746a94b847f3c10eaf9c74d3d1c3f0e71164f85417c6c2c634eed4890"
-    },
-    "CETUS/ENERGY/bin/MoosasEnergy-legacy": {
-      "bytes": 2291460,
-      "sha256": "39ab7793a5482efaefac67303b9d24d593b9cc3b2a0a2030b247f3108cbace05"
-    },
-    "CETUS/ENERGY/bin/MoosasEnergy-new.go": {
-      "bytes": 13497,
-      "sha256": "6ddc928bc66065e33bc2d341c6dfdd4287c16fe5b2ae44762d9eab897b676f45"
-    },
-    "CETUS/ENERGY/bin/CetusSurfaceEnergy.sha256": {
-      "bytes": 65,
-      "sha256": "35f673a03b2969792fd5da60c07cdb77bc52d674314d10ebaaa8edba9e9c38b4"
-    },
-    "CETUS/ENERGY/bin/CetusSurfaceEnergy.exe": {
-      "bytes": 3063808,
-      "sha256": "9f6d84346229795c33c5cbf19e68ad030b37a38d1ac5a7e5143997b8c630f0b4"
-    },
-    "CETUS/ENERGY/bin/CetusSurfaceEnergy": {
-      "bytes": 2947092,
-      "sha256": "a13eaf37126caf7cafad06fe0caa48a14eb380ddbf6a351e26270c3ea0cfd54f"
-    },
-    "CETUS/ENERGY/bin/Energy-Readme.md": {
-      "bytes": 12459,
-      "sha256": "7f72a19947a4c1ff0f84b709535fc80821041b74ea076b7005382158b4b25bea"
-    },
-    "CETUS/ENERGY/bin/MoosasEnergy-legacy.exe": {
-      "bytes": 2357760,
-      "sha256": "b3d72c8617d33ca72a92a3e29f4dfeb4c7f9be5e0a4c827de8804a95493e9a62"
-    },
-    "CETUS/ENERGY/bin/MoosasEnergy": {
-      "bytes": 2580507,
-      "sha256": "ae29c8c5d7df6f51379e994e90d71093e936ec0fd95d3e70871f579b6fb03923"
-    },
-    "CETUS/ENERGY/bin/CetusSurfaceEnergy.exe.sha256": {
-      "bytes": 65,
-      "sha256": "35f673a03b2969792fd5da60c07cdb77bc52d674314d10ebaaa8edba9e9c38b4"
-    },
-    "CETUS/ENERGY/bin/README.md": {
-      "bytes": 14449,
-      "sha256": "15b307aa77a8efd33c839dec6b893769352ed516e099175a07631a1a2ed2293c"
-    },
-    "CETUS/ENERGY/bin/MoosasEnergy-steady.exe": {
-      "bytes": 2568192,
-      "sha256": "b1fe182d44d00b6877d28ed575b44b00dbf3e7ccca2ba95effc8ced8727be856"
-    },
-    "CETUS/ENERGY/bin/MoosasEnergy.exe": {
-      "bytes": 2695168,
-      "sha256": "d8c04ea078c97f890744b3bb42832c05c73b95c0e33b5a6e8ca17cd5026cfeb4"
-    },
-    "CETUS/ENERGY/bin/MoosasEnergy.go": {
-      "bytes": 86651,
-      "sha256": "fa7687a85034a25f90ce34ca9dbe0731d4e9172317a4c64bd8cc416345f85652"
-    },
-    "CETUS/ENERGY/surface_engine/binary.go": {
-      "bytes": 14390,
-      "sha256": "bb9f9622a05c0ae8356423c495c7af1198c7cf8f0e8b1e81bb8d3992569fa406"
-    },
-    "CETUS/ENERGY/surface_engine/main.go": {
-      "bytes": 20087,
-      "sha256": "40bdd230b8ebff72b7c2588f3dfa392a384a780593654049df2696048cfa86b7"
-    },
-    "CETUS/ENERGY/surface_engine/main_test.go": {
-      "bytes": 5423,
-      "sha256": "3aa88218f90a7434f5afb7ae64380e27340e2c93fb1f8318f86c6ac2c3016682"
-    },
-    "CETUS/ENERGY/surface_engine/binary_test.go": {
-      "bytes": 4103,
-      "sha256": "6c87e1f532b672d161935b3e2d6938b0ddcd23d280e1686cea8a24f46bd6611a"
-    },
-    "CETUS/ENERGY/surface_engine/go.mod": {
-      "bytes": 37,
-      "sha256": "becdc70d9663834c536f634309f18018eb06024dedadcbf11d5e5a45ae7d2e06"
-    },
-    "CETUS/ENERGY/data/archetype/mean.csv": {
-      "bytes": 2604,
-      "sha256": "354c8e3df1c515a1455e2b293674589881d83ca5cb0700721cdca0a98996947d"
-    },
-    "CETUS/ENERGY/data/archetype/building_template.csv": {
-      "bytes": 8327,
-      "sha256": "bf2cabf2979738f4c7d813943c81f2463317c285b8d3fa1bb26b0fafdc75f843"
-    },
-    "CETUS/ENERGY/data/archetype/std.csv": {
-      "bytes": 2613,
-      "sha256": "9df99927121d34e54ec79d315cdd7bb1adbeb7d02ac1afbe050ebc8e2e6adcd1"
-    },
-    "CETUS/ENERGY/data/schedule/hotel.sch": {
-      "bytes": 2014,
-      "sha256": "3736f009fe3ef8f00f9d271c1050f8d680d53beae254befd05f176e7f4fb8c3a"
-    },
-    "CETUS/ENERGY/data/schedule/school.sch": {
-      "bytes": 2056,
-      "sha256": "d18442f262ba604b44244106a3f6381de6ae657c71d5b5d09ec1ccc5ec2af188"
-    },
-    "CETUS/ENERGY/data/schedule/office.sch": {
-      "bytes": 2037,
-      "sha256": "db93edc18325c9167a5d666797619233cc99bd5708f46003ddb35022c08f08fd"
-    },
-    "CETUS/ENERGY/data/schedule/medical.sch": {
-      "bytes": 2057,
-      "sha256": "ad78102b1ebbd9ad529e3dd6afcf3c78e52947f5885cf3000d75c6be336809a1"
-    },
-    "CETUS/ENERGY/data/schedule/commercial.sch": {
-      "bytes": 2118,
-      "sha256": "0a60d5e029c531ea92cbd00933451cd5871aea6188104fbc36bf0046abf79b1d"
-    },
-    "CETUS/ENERGY/data/schedule/residential.sch": {
-      "bytes": 2316,
-      "sha256": "54e75e442786faf37d6e05a7a7380422ac46a319e9b30ed592b3d36bfe1524c3"
-    },
-    "CETUS/UHI/params/LCZ5.json": {
-      "bytes": 911,
-      "sha256": "217cc3aba3cc9056e67d0c3b5ef48d5702a13034111a9d2d9649640c8d1151f8"
-    },
-    "CETUS/UHI/params/calibrated_params_diff_vs_reference.csv": {
-      "bytes": 13308,
-      "sha256": "ceb6adf588e86f598bbbf07682f247994596960fa9f3e61535bad2523a3992e3"
-    },
-    "CETUS/UHI/params/LCZ1.json": {
-      "bytes": 909,
-      "sha256": "6d30af7051d1251a2360440f8a4a26e3381242d95cf952cdf74c90c5d30f30ae"
-    },
-    "CETUS/UHI/params/LCZ1 copy.json": {
-      "bytes": 911,
-      "sha256": "629d66341913f05b362f171bfd4d0f6fd56d458b366425a4dcfe9fc548418e8a"
-    },
-    "CETUS/UHI/params/LCZ2.json": {
-      "bytes": 909,
-      "sha256": "6d30af7051d1251a2360440f8a4a26e3381242d95cf952cdf74c90c5d30f30ae"
-    },
-    "CETUS/UHI/params/LCZ3.json": {
-      "bytes": 908,
-      "sha256": "f6c12e0ab6f3bbe73b808f90ac39f1d1afaf62e35a549e758c728cb68519a99e"
-    },
-    "CETUS/UHI/params/LCZ4.json": {
-      "bytes": 909,
-      "sha256": "e0bb3b97df15993bc126197f775b0d9de86271703b4e6d6b798ff6eefaaeeeaf"
-    },
-    "CETUS/validation/coupled_input/53695_3092_LCZ1_2B.zip": {
-      "bytes": 393265,
-      "sha256": "959bf469dbc20cce63590755f1312aff236a666d3621af0f895fe1d693970f0c"
+    "ENERGY/__init__.py": {
+      "bytes": 1418
+    },
+    "ENERGY/bin/CetusSurfaceEnergy": {
+      "bytes": 4132593
+    },
+    "ENERGY/bin/CetusSurfaceEnergy.exe": {
+      "bytes": 4311040
+    },
+    "ENERGY/bin/Energy-Readme.md": {
+      "bytes": 12459
+    },
+    "ENERGY/bin/MoosasEnergy": {
+      "bytes": 2580507
+    },
+    "ENERGY/bin/MoosasEnergy-legacy": {
+      "bytes": 2291460
+    },
+    "ENERGY/bin/MoosasEnergy-legacy.exe": {
+      "bytes": 2357760
+    },
+    "ENERGY/bin/MoosasEnergy-new.go": {
+      "bytes": 13497
+    },
+    "ENERGY/bin/MoosasEnergy.exe": {
+      "bytes": 2695168
+    },
+    "ENERGY/bin/MoosasEnergy.go": {
+      "bytes": 86651
+    },
+    "ENERGY/bin/README.md": {
+      "bytes": 649
+    },
+    "ENERGY/coupled.py": {
+      "bytes": 33359
+    },
+    "ENERGY/data/archetype/building_template.csv": {
+      "bytes": 8327
+    },
+    "ENERGY/data/archetype/mean.csv": {
+      "bytes": 2604
+    },
+    "ENERGY/data/archetype/std.csv": {
+      "bytes": 2613
+    },
+    "ENERGY/data/schedule/commercial.sch": {
+      "bytes": 2118
+    },
+    "ENERGY/data/schedule/hotel.sch": {
+      "bytes": 2014
+    },
+    "ENERGY/data/schedule/medical.sch": {
+      "bytes": 2057
+    },
+    "ENERGY/data/schedule/office.sch": {
+      "bytes": 2037
+    },
+    "ENERGY/data/schedule/residential.sch": {
+      "bytes": 2316
+    },
+    "ENERGY/data/schedule/school.sch": {
+      "bytes": 2056
+    },
+    "ENERGY/daylight.py": {
+      "bytes": 22116
+    },
+    "ENERGY/engine.py": {
+      "bytes": 5616
+    },
+    "ENERGY/model.py": {
+      "bytes": 48368
+    },
+    "ENERGY/neighborhood.py": {
+      "bytes": 49563
+    },
+    "ENERGY/optical_priors.json": {
+      "bytes": 1994
+    },
+    "ENERGY/readme.md": {
+      "bytes": 14733
+    },
+    "ENERGY/result_compat.py": {
+      "bytes": 1253
+    },
+    "ENERGY/standalone.py": {
+      "bytes": 4905
+    },
+    "ENERGY/steady.py": {
+      "bytes": 16807
+    },
+    "ENERGY/surface.py": {
+      "bytes": 13908
+    },
+    "ENERGY/surface_binary.py": {
+      "bytes": 5662
+    },
+    "ENERGY/surface_codec.py": {
+      "bytes": 11044
+    },
+    "ENERGY/surface_engine/binary.go": {
+      "bytes": 15679
+    },
+    "ENERGY/surface_engine/binary_test.go": {
+      "bytes": 4103
+    },
+    "ENERGY/surface_engine/go.mod": {
+      "bytes": 37
+    },
+    "ENERGY/surface_engine/main.go": {
+      "bytes": 20618
+    },
+    "ENERGY/surface_engine/main_test.go": {
+      "bytes": 5423
+    },
+    "ENERGY/surface_engine/spectral.go": {
+      "bytes": 3309
+    },
+    "ENERGY/surface_engine/spectral_test.go": {
+      "bytes": 1175
+    },
+    "Energy.py": {
+      "bytes": 882
+    },
+    "EnergyUnpack.py": {
+      "bytes": 286
+    },
+    "RAD/__init__.py": {
+      "bytes": 511
+    },
+    "RAD/bin/rad/MoosasRad.exe": {
+      "bytes": 2081792
+    },
+    "RAD/bin/rad/MoosasRad.go": {
+      "bytes": 7909
+    },
+    "RAD/bin/rad/MoosasRad_pre_bvh.exe": {
+      "bytes": 2081792
+    },
+    "RAD/bin/weather/-n": {
+      "bytes": 576165
+    },
+    "RAD/bin/weather/epw2wea.exe": {
+      "bytes": 13824
+    },
+    "RAD/bin/weather/gendaymtx.exe": {
+      "bytes": 30720
+    },
+    "RAD/data/sun_position.csv": {
+      "bytes": 3859
+    },
+    "RAD/generate_building_solar_schedules.py": {
+      "bytes": 2086
+    },
+    "RAD/network.py": {
+      "bytes": 21801
+    },
+    "RAD/rad_engine.py": {
+      "bytes": 4874
+    },
+    "RAD/schedule_writer.py": {
+      "bytes": 2946
+    },
+    "RAD/sky.py": {
+      "bytes": 1996
+    },
+    "RAD/solar_geometry.py": {
+      "bytes": 11489
+    },
+    "RAD/spectral.py": {
+      "bytes": 7685
+    },
+    "RAD/transport_engine/go.mod": {
+      "bytes": 42
+    },
+    "RAD/transport_engine/main.go": {
+      "bytes": 3631
+    },
+    "RAD/transport_engine/main_test.go": {
+      "bytes": 318
+    },
+    "RAD/transport_engine/transport": {
+      "bytes": 3040584
+    },
+    "RAD/transport_engine/transport.exe": {
+      "bytes": 3156992
+    },
+    "RAD/weather_epw.py": {
+      "bytes": 642
+    },
+    "RAD/workflow.py": {
+      "bytes": 26574
+    },
+    "README.md": {
+      "bytes": 1234
+    },
+    "SITE/__init__.py": {
+      "bytes": 291
+    },
+    "SITE/calc_inx_uhi_inputs.py": {
+      "bytes": 12292
+    },
+    "SITE/extract_inx_landuse.py": {
+      "bytes": 8715
+    },
+    "SITE/processSHP.py": {
+      "bytes": 16750
+    },
+    "SITE/process_BLD_SHP.py": {
+      "bytes": 27460
+    },
+    "SITE/process_BLD_TIF.py": {
+      "bytes": 11046
+    },
+    "SITE/siteInput.py": {
+      "bytes": 13096
+    },
+    "SITE/transform.py": {
+      "bytes": 13219
+    },
+    "UHI/__init__.py": {
+      "bytes": 819
+    },
+    "UHI/aT.py": {
+      "bytes": 5208
+    },
+    "UHI/activity.py": {
+      "bytes": 2904
+    },
+    "UHI/anthropic.py": {
+      "bytes": 3129
+    },
+    "UHI/calculator.py": {
+      "bytes": 8871
+    },
+    "UHI/constant.py": {
+      "bytes": 2802
+    },
+    "UHI/csv_calculator.py": {
+      "bytes": 15022
+    },
+    "UHI/heatBalance.py": {
+      "bytes": 15351
+    },
+    "UHI/longwave.py": {
+      "bytes": 2776
+    },
+    "UHI/modelInfo.py": {
+      "bytes": 56136
+    },
+    "UHI/params/LCZ1 copy.json": {
+      "bytes": 911
+    },
+    "UHI/params/LCZ1.json": {
+      "bytes": 909
+    },
+    "UHI/params/LCZ2.json": {
+      "bytes": 909
+    },
+    "UHI/params/LCZ3.json": {
+      "bytes": 908
+    },
+    "UHI/params/LCZ4.json": {
+      "bytes": 909
+    },
+    "UHI/params/LCZ5.json": {
+      "bytes": 911
+    },
+    "UHI/params/calibrated_params_diff_vs_reference.csv": {
+      "bytes": 13308
+    },
+    "UHI/raster_calculator.py": {
+      "bytes": 19968
+    },
+    "UHI/shortwave.py": {
+      "bytes": 5127
+    },
+    "UHI/sky_vector.csv": {
+      "bytes": 3869
+    },
+    "UHI/spectral.py": {
+      "bytes": 7668
+    },
+    "UHI/vapor.py": {
+      "bytes": 5792
+    },
+    "WEA/__init__.py": {
+      "bytes": 626
+    },
+    "WEA/epw.py": {
+      "bytes": 18616
+    },
+    "configs/broadband_high_radiosity.json": {
+      "bytes": 747
+    },
+    "configs/matched_one_bounce.json": {
+      "bytes": 838
+    },
+    "configs/matched_radiosity.json": {
+      "bytes": 837
+    },
+    "configs/selective_one_bounce.json": {
+      "bytes": 750
+    },
+    "configs/selective_radiosity.json": {
+      "bytes": 749
+    },
+    "docs/CETUS_1.9_Glass_Comparison.md": {
+      "bytes": 4857
+    },
+    "docs/CetusSurfaceEnergy_V8.3_Interface.md": {
+      "bytes": 11867
+    },
+    "docs/CetusSurfaceEnergy_V8.4_Interface.md": {
+      "bytes": 6630
+    },
+    "docs/INTERFACE_9.2.md": {
+      "bytes": 6237
+    },
+    "docs/PHYSICS_1.9.md": {
+      "bytes": 6051
+    },
+    "docs/PHYSICS_9.1.md": {
+      "bytes": 8578
+    },
+    "docs/README_V8.4_Historical.md": {
+      "bytes": 1978
+    },
+    "docs/TESTS_9.1.txt": {
+      "bytes": 99
+    },
+    "docs/TESTS_9.2.txt": {
+      "bytes": 79
+    },
+    "docs/V8.3_Changes.md": {
+      "bytes": 1187
+    },
+    "docs/VALIDATION_1.9.md": {
+      "bytes": 8488
+    },
+    "docs/VALIDATION_9.1.md": {
+      "bytes": 8187
+    },
+    "docs/VALIDATION_9.2.md": {
+      "bytes": 4555
+    },
+    "docs/benchmark_9.2.json": {
+      "bytes": 1933
+    },
+    "docs/energy_v7_coupling.md": {
+      "bytes": 8724
+    },
+    "docs/energy_v7_validation.md": {
+      "bytes": 5541
+    },
+    "docs/figures/ashrae_internal_gains_annual.pdf": {
+      "bytes": 17818
+    },
+    "docs/figures/ashrae_internal_gains_annual.png": {
+      "bytes": 111432
+    },
+    "docs/figures/ashrae_internal_gains_annual.svg": {
+      "bytes": 43810
+    },
+    "docs/figures/lighting_hvac_72h.pdf": {
+      "bytes": 18827
+    },
+    "docs/figures/lighting_hvac_72h.png": {
+      "bytes": 256572
+    },
+    "docs/figures/lighting_hvac_72h.svg": {
+      "bytes": 45876
+    },
+    "examples/run_v1_9.py": {
+      "bytes": 1403
+    },
+    "examples/run_v1_9_standalone.py": {
+      "bytes": 1440
+    },
+    "examples/run_v8_2.py": {
+      "bytes": 178
+    },
+    "examples/run_v8_3.py": {
+      "bytes": 178
+    },
+    "examples/run_v8_4.py": {
+      "bytes": 3643
+    },
+    "examples/run_v9_1_standalone.py": {
+      "bytes": 1558
+    },
+    "input_2026_05_27.csv": {
+      "bytes": 5129
+    },
+    "input_protocol.md": {
+      "bytes": 5118
+    },
+    "methodology.md": {
+      "bytes": 40451
+    },
+    "outputs/weather/CHN_FJ_Longyan.589270_TMYx.csv": {
+      "bytes": 5011
+    },
+    "requirements-validation.txt": {
+      "bytes": 22
+    },
+    "requirements.txt": {
+      "bytes": 225
+    },
+    "result_store.py": {
+      "bytes": 6842
+    },
+    "scripts/compare_19_glass.py": {
+      "bytes": 5682
+    },
+    "scripts/compare_19_regression.py": {
+      "bytes": 1831
+    },
+    "scripts/compare_91_longwave.py": {
+      "bytes": 5673
+    },
+    "scripts/export_92_diagnostics.py": {
+      "bytes": 1058
+    },
+    "scripts/plot_19_validation.py": {
+      "bytes": 2291
+    },
+    "scripts/replay_19_annual.py": {
+      "bytes": 919
+    },
+    "scripts/run_19_glass_comparison.py": {
+      "bytes": 1100
+    },
+    "scripts/run_91_validation.py": {
+      "bytes": 1293
+    },
+    "scripts/run_coupled_case.py": {
+      "bytes": 6754
+    },
+    "scripts/validate_19_ashrae.py": {
+      "bytes": 8368
+    },
+    "scripts/validate_19_case.py": {
+      "bytes": 3609
+    },
+    "scripts/validate_19_regression.py": {
+      "bytes": 1409
+    },
+    "scripts/validate_91_case.py": {
+      "bytes": 4582
+    },
+    "scripts/validate_91_plate.py": {
+      "bytes": 1352
+    },
+    "scripts/validate_92_case.py": {
+      "bytes": 2336
+    },
+    "scripts/validate_surface.py": {
+      "bytes": 5513
+    },
+    "test.py": {
+      "bytes": 1977
+    },
+    "tests/test_binary.py": {
+      "bytes": 5499
+    },
+    "tests/test_coupled.py": {
+      "bytes": 4228
+    },
+    "tests/test_daylight.py": {
+      "bytes": 6646
+    },
+    "tests/test_daylight_integration.py": {
+      "bytes": 5212
+    },
+    "tests/test_independent_solver.py": {
+      "bytes": 3063
+    },
+    "tests/test_optimizations.py": {
+      "bytes": 3808
+    },
+    "tests/test_result_archive.py": {
+      "bytes": 6147
+    },
+    "tests/test_spectral.py": {
+      "bytes": 6076
+    },
+    "validation/coupled_input/53695_3092_LCZ1_2B.zip": {
+      "bytes": 393265
     }
   }
 }

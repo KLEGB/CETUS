@@ -19,21 +19,22 @@ type Layer struct {
 	C float64 `json:"capacity_j_m2k"`
 }
 type Surface struct {
-	Name      string  `json:"name"`
-	Kind      string  `json:"kind"`
-	Area      float64 `json:"area_m2"`
-	R         float64 `json:"resistance_m2k_w"` // construction only; reference films removed by adapter
-	Mass      float64 `json:"thermal_mass_j_m2k"`
-	Rho       float64 `json:"reflectance"`
-	Tau       float64 `json:"transmittance"`
-	Eps       float64 `json:"emissivity"`
-	Hi        float64 `json:"hi_w_m2k"`
-	Ho        float64 `json:"ho_w_m2k"`
-	Sky       float64 `json:"sky_view"`
-	Ground    float64 `json:"ground_view"`
-	GroundH   float64 `json:"ground_contact_w_m2k"`
-	AbsInside float64 `json:"absorbed_inside_fraction"`
-	Layers    []Layer `json:"layers,omitempty"`
+	LWBands   []LWBand `json:"longwave_bands,omitempty"`
+	Name      string   `json:"name"`
+	Kind      string   `json:"kind"`
+	Area      float64  `json:"area_m2"`
+	R         float64  `json:"resistance_m2k_w"` // construction only; reference films removed by adapter
+	Mass      float64  `json:"thermal_mass_j_m2k"`
+	Rho       float64  `json:"reflectance"`
+	Tau       float64  `json:"transmittance"`
+	Eps       float64  `json:"emissivity"`
+	Hi        float64  `json:"hi_w_m2k"`
+	Ho        float64  `json:"ho_w_m2k"`
+	Sky       float64  `json:"sky_view"`
+	Ground    float64  `json:"ground_view"`
+	GroundH   float64  `json:"ground_contact_w_m2k"`
+	AbsInside float64  `json:"absorbed_inside_fraction"`
+	Layers    []Layer  `json:"layers,omitempty"`
 }
 type Hour struct {
 	NetworkIR []float64 `json:"network_ir_w_m2,omitempty"`
@@ -138,6 +139,9 @@ func validate(p Input) error {
 		if s.Area <= 0 || s.R <= 0 || s.Hi <= 0 || s.Eps > 1 || s.Rho+s.Tau > 1+1e-12 || s.Sky+s.Ground > 1+1e-12 || s.AbsInside > 1 {
 			return fmt.Errorf("invalid optical/thermal parameters %s", s.Name)
 		}
+		if err := prepareBands(&s); err != nil {
+			return err
+		}
 		transparent := s.Kind == "window" || s.Kind == "skylight"
 		if transparent && (s.Mass != 0 || len(s.Layers) != 0) {
 			return fmt.Errorf("transparent surface must have zero capacity")
@@ -160,7 +164,16 @@ func validate(p Input) error {
 	return validateHours(p)
 }
 func validateHours(p Input) error {
+	spectral := false
+	for _, s := range p.Surfaces {
+		if len(s.LWBands) > 0 {
+			spectral = true
+		}
+	}
 	for _, h := range p.Hours {
+		if spectral && len(h.NetworkIR) == 0 {
+			return fmt.Errorf("spectral materials require a spectral equivalent network_ir_w_m2 boundary")
+		}
 		if len(h.NetworkIR) != 0 && len(h.NetworkIR) != len(p.Surfaces) {
 			return fmt.Errorf("network IR array size mismatch")
 		}
@@ -320,8 +333,14 @@ func hourPrepared(p Input, h Hour, old []float64, t []topology, n, level int, w 
 				boundary(a, b, v.ext, ho*s.Area, h.Air)
 				boundary(a, b, v.ext, s.GroundH*s.Area, h.Ground)
 				if len(h.NetworkIR) > 0 && s.Kind != "floor" {
-					tr := math.Pow(h.NetworkIR[k]/sigma, .25) - 273.15
-					boundary(a, b, v.ext, hr(s.Eps, x[v.ext], tr)*s.Area, tr)
+					if len(s.LWBands) > 0 {
+						e, g := spectralEmission(s, x[v.ext])
+						a[v.ext][v.ext] += g * s.Area
+						b[v.ext] += s.Area * (s.Eps*h.NetworkIR[k] - e + g*x[v.ext])
+					} else {
+						tr := math.Pow(h.NetworkIR[k]/sigma, .25) - 273.15
+						boundary(a, b, v.ext, hr(s.Eps, x[v.ext], tr)*s.Area, tr)
+					}
 				} else {
 					boundary(a, b, v.ext, hr(s.Eps, x[v.ext], sky)*s.Area*s.Sky, sky)
 					boundary(a, b, v.ext, hr(s.Eps, x[v.ext], h.Ground)*s.Area*s.Ground, h.Ground)
@@ -458,7 +477,7 @@ func hourOutput(p Input, h Hour, old []float64, t []topology, n, level int, x []
 			o.SolarDeposited = solar * weights[k]
 			o.ExteriorContact = s.GroundH * s.Area * (o.Te - h.Ground)
 			if len(h.NetworkIR) > 0 && s.Kind != "floor" {
-				o.ExternalLW = s.Area * s.Eps * (sigma*fourth(o.Te) - h.NetworkIR[k])
+				o.ExternalLW = exteriorNetworkLW(s, h, k, o.Te)
 			} else {
 				o.ExternalLW = s.Area * s.Eps * (s.Sky*(sigma*fourth(o.Te)-h.SkyIR) + s.Ground*sigma*(fourth(o.Te)-fourth(h.Ground)))
 			}
@@ -467,7 +486,7 @@ func hourOutput(p Input, h Hour, old []float64, t []topology, n, level int, x []
 		}
 		out.GroundContact += s.GroundH * s.Area * (o.Te - h.Ground)
 		if len(h.NetworkIR) > 0 && s.Kind != "floor" {
-			out.NetworkLW += s.Area * s.Eps * (sigma*fourth(o.Te) - h.NetworkIR[k])
+			out.NetworkLW += exteriorNetworkLW(s, h, k, o.Te)
 		} else {
 			out.GroundLW += s.Area * s.Eps * s.Ground * sigma * (fourth(o.Te) - fourth(h.Ground))
 			out.SkyLW += s.Area * s.Eps * s.Sky * (sigma*fourth(o.Te) - h.SkyIR)

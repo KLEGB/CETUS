@@ -1,0 +1,41 @@
+{
+  "enabled": true,
+  "bands": [
+    {
+      "name": "below_8",
+      "lower_um": 0,
+      "upper_um": 8,
+      "atmospheric_transmittance": 0.02
+    },
+    {
+      "name": "window_8_13",
+      "lower_um": 8,
+      "upper_um": 13,
+      "atmospheric_transmittance": 0.75
+    },
+    {
+      "name": "above_13",
+      "lower_um": 13,
+      "upper_um": null,
+      "atmospheric_transmittance": 0.02
+    }
+  ],
+  "sky_mode": "prescribed",
+  "reflection_mode": "one_bounce",
+  "materials": {
+    "roof": {
+      "emissivity": {
+        "below_8": 0.3738301953430101,
+        "window_8_13": 0.3738301953430101,
+        "above_13": 0.3738301953430101
+      }
+    },
+    "ground": {
+      "emissivity": {
+        "below_8": 0.3738301953430101,
+        "window_8_13": 0.3738301953430101,
+        "above_13": 0.3738301953430101
+      }
+    }
+  }
+}

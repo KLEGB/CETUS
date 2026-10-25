@@ -53,6 +53,9 @@ class BinarySurfaceEngine:
             self.close();raise RuntimeError('Binary engine stopped or timed out') from exc
     def configure(self,models):
         answer=self._send(1,encode_models(models))
+        if any(s.get('longwave_bands') for m in models for s in m['surfaces']):
+            from .surface_codec import encode_spectral_models
+            self._send(10,encode_spectral_models(models))
         self.models=copy.deepcopy(models);self.active=False;self.last_candidate_id=None
         self._send(8,struct.pack('<II',int(self.warm_start),int(self.candidate_cache)))
         return {'configured':struct.unpack('<I',answer)[0]}
@@ -65,12 +68,14 @@ class BinarySurfaceEngine:
         if len(hours)!=len(self.models):raise ValueError('Model count differs')
         raw=self._send(7,encode_evaluate(hours,self.step_id,response_level,return_state,aggregation,dynamic_fields))
         self.last_candidate_id=struct.unpack_from('<Q',raw)[0]
+        if response_level=='full' and return_state and aggregation=='batch':self.last_raw_result=bytes(raw[8:])
         return decode_evaluate(raw[8:],self.models,response_level,return_state,aggregation)
     def get_result(self,candidate_id,*,response_level='full',return_state=True,aggregation='batch'):
         from .surface_codec import LEVELS
         if not self.active:raise ValueError('No active step')
         if aggregation not in ('batch','building'):raise ValueError('Unknown aggregation')
         raw=self._send(6,struct.pack('<QQIII',self.step_id,candidate_id,LEVELS[response_level],int(return_state),int(aggregation=='building')))
+        if response_level=='full' and return_state and aggregation=='batch':self.last_raw_result=bytes(raw)
         return decode_evaluate(raw,self.models,response_level,return_state,aggregation)
     def profile(self):
         raw=self._send(9,b'');values=struct.unpack('<8Q4d',raw)

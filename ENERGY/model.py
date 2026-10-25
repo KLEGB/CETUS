@@ -433,6 +433,8 @@ class BuildingInstance:
     RoofReflectance: float = .30
     WindowReflectance: float | None = .075
     WindowTransmittance: float = .60
+    WindowVisibleTransmittance: float | None = None
+    WindowNIRTransmittance: float | None = None
     WallEmissivity: float = .9
     RoofEmissivity: float = .9
     WindowEmissivity: float = .84
@@ -449,6 +451,7 @@ class BuildingInstance:
     ACWasteHeat: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float64))
     energyHOY: list[int] = field(default_factory=list)
     loadDecompose: dict[str, object] = field(default_factory=dict)
+    building_id: str = ""
     energyModel: str = "legacy"
     energyFeedback: dict[str, list[float]] = field(default_factory=dict)
     schedule: Schedule | None = None
@@ -1048,6 +1051,18 @@ class BuildingInstance:
         finally:
             if temp_dir is not None:
                 temp_dir.cleanup()
+
+    RESULT_FIELDS: ClassVar[tuple[str,...]] = ('load','coolingLoad','heatingLoad','ACLoad','ACWasteHeat','energyHOY','loadDecompose','energyModel','energyFeedback')
+
+    def input_dict(self):
+        data={f.name:getattr(self,f.name) for f in fields(self) if f.name not in self.RESULT_FIELDS}
+        data['schedule']=self.writeSchedule()
+        return data
+
+    def clear_results(self):
+        for name in ('load','coolingLoad','heatingLoad','ACLoad','ACWasteHeat'):
+            setattr(self,name,np.array([],dtype=np.float64))
+        self.energyHOY=[];self.loadDecompose={};self.energyFeedback={};self.energyModel=''
 
     def toDict(self) -> dict[str, object]:
         """Serialize this building into a JSON-compatible dictionary."""

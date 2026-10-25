@@ -20,13 +20,9 @@ def ensure_steady_binary(executable_path=None):
         if not path.is_file():
             raise FileNotFoundError(path)
         return path
-    source = BIN_DIR / "MoosasEnergy-new.go"
     target = BIN_DIR / ("MoosasEnergy.exe" if platform.system() == "Windows" else "MoosasEnergy")
-    if not target.exists() or source.stat().st_mtime > target.stat().st_mtime:
-        subprocess.run(["go", "build", "-o", str(target), str(source)],
-                       check=True, capture_output=True, text=True, timeout=120)
-    if platform.system() != "Windows":
-        target.chmod(target.stat().st_mode | 0o755)
+    if not target.is_file():raise FileNotFoundError(f'Energy executable not found: {target}')
+    if platform.system()!='Windows':target.chmod(target.stat().st_mode | 0o755)
     return target
 
 
@@ -254,7 +250,6 @@ def simulate_neighborhood(neighborhood, *, output_dir=None, options=None,
             energyModel="steady", energyFeedback=feedback,
             ACLoad=updated.ACLoad.tolist(), ACWasteHeat=updated.ACWasteHeat.tolist(),
             output_dir=str(root / f"building_{index:04d}")))
-    (root / "summary.json").write_text(json.dumps(results, indent=2, allow_nan=False), encoding="utf-8")
     # Commit only after every building succeeds, so failed runs preserve prior feedback.
     for building, result in zip(neighborhood.buildings, results):
         building.energyModel = "steady"
@@ -266,5 +261,6 @@ def simulate_neighborhood(neighborhood, *, output_dir=None, options=None,
         building.load = building.coolingLoad - building.heatingLoad
         building.updateACResults()
     neighborhood._writeEnergyFeedback()
-    neighborhood._energy_results = deepcopy(results)
+    from .result_compat import persist
+    persist(neighborhood,results,root,"steady")
     return results

@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import os
 import platform
 import queue
-import shutil
 import subprocess
 import tempfile
 import threading
@@ -28,16 +26,9 @@ def ensure_surface_binary(executable_path=None):
             raise FileNotFoundError(target)
         return target
     target = ROOT / 'bin' / ('CetusSurfaceEnergy.exe' if platform.system() == 'Windows' else 'CetusSurfaceEnergy')
-    source = ROOT / 'surface_engine' / 'main.go'
-    digest = hashlib.sha256(b''.join(p.name.encode()+p.read_bytes() for p in sorted(source.parent.glob('*.go')) if not p.name.endswith('_test.go'))).hexdigest()
-    stamp = target.with_suffix(target.suffix + '.sha256')
-    if not target.exists() or not stamp.exists() or stamp.read_text().strip() != digest:
-        compiler = os.environ.get('CETUS_GO') or shutil.which('go')
-        if not compiler:
-            raise RuntimeError('Install Go 1.22+ or set CETUS_GO to rebuild CetusSurfaceEnergy.')
-        subprocess.run([compiler, 'build', '-o', str(target), '.'], cwd=source.parent,
-                       check=True, capture_output=True, text=True, timeout=120)
-        stamp.write_text(digest + '\n')
+    if not target.is_file():
+        raise FileNotFoundError(f'Energy executable not found: {target}; install a prebuilt executable. Automatic compilation is disabled.')
+    if platform.system()!='Windows':target.chmod(target.stat().st_mode | 0o755)
     return target
 
 
@@ -111,7 +102,7 @@ def build_surface_input(building, climate, *, irradiance=None, options=None):
     Legacy WindowSHGC remains metadata, not a measured solar transmittance.
     """
     options = copy.deepcopy(options or {})
-    allowed = {'surfaces', 'internal_radiant_fraction', 'solar_floor_fraction', 'dt_s'}
+    allowed = {'surfaces', 'internal_radiant_fraction', 'solar_floor_fraction', 'dt_s', 'daylighting', 'longwave'}
     if set(options) - allowed:
         raise ValueError(f'Unknown surface options: {sorted(set(options)-allowed)}')
     overrides = options.get('surfaces', {})
@@ -125,8 +116,13 @@ def build_surface_input(building, climate, *, irradiance=None, options=None):
         raise ValueError('Invalid building geometry')
     if not 0 <= building.SkylightArea <= building.RoofArea:
         raise ValueError('Skylight area must be contained in roof area')
-    area = {'wall': building._perimeter*building.height*(1-building.wwr), 'roof': building.RoofArea-building.SkylightArea,
-            'floor': building.GroundFloorArea, 'window': building._perimeter*building.height*building.wwr,
+    # Scalar-only clients provide typical-floor facade areas without polygons.
+    wall_area = (building._perimeter*building.height*(1-building.wwr)
+                 if building._perimeter > 0 else building.ExteriorWallArea*gfa/footprint)
+    window_area = (building._perimeter*building.height*building.wwr
+                   if building._perimeter > 0 else building.ExteriorWindowArea*gfa/footprint)
+    area = {'wall': wall_area, 'roof': building.RoofArea-building.SkylightArea,
+            'floor': building.GroundFloorArea, 'window': window_area,
             'skylight': building.SkylightArea}
     ghi = np.maximum(np.asarray(climate.RadTotal, dtype=float), 0)
     dhi = np.clip(np.asarray(climate.RadDiffuse, dtype=float), 0, ghi)
@@ -203,7 +199,46 @@ def build_surface_input(building, climate, *, irradiance=None, options=None):
     if payload['dt_s']!=3600:
         raise ValueError('Neighborhood climate is hourly; dt_s must be 3600')
     json.dumps(payload, allow_nan=False)
-    return payload, {'radiation':radiation_note,'optics':'V8.2 explicit solar rho/tau; alpha=1-rho-tau. Legacy SHGC is not used as tau.',
+    audit = {'radiation':radiation_note,'optics':'V8.2 explicit solar rho/tau; alpha=1-rho-tau. Legacy SHGC is not used as tau.',
         'construction':'Roof/floor U default to WallUValue; nominal U reference films removed once.',
         'longwave':'Standalone fallback uses prescribed sky/ground fractions; RAD network replaces it with geometric sky, intersurface and far-field incident IR.',
         'thermal_mass':'Default effective capacities are assumptions, not calibrated constructions.'}
+
+    # Separate optical material definition from the lighting controller.
+    # Disabling controls must not silently replace the glazing construction.
+    from .daylight import model_from_building, glazing_from_building
+    light_baseline_w = gfa * np.asarray(values['LightingHeatGain'], dtype=float)
+    audit['baseline_lighting_w'] = light_baseline_w.tolist()
+    audit['lighting_electricity_w'] = light_baseline_w.tolist()
+    dcfg = options.get('daylighting') or {}
+    glazing = glazing_from_building(building, dcfg)
+    if glazing is not None:
+        for surface in payload['surfaces']:
+            if surface['kind'] in ('window', 'skylight'):
+                if 'transmittance' in overrides.get(surface['name'], {}):
+                    raise ValueError('Choose spectral transmittances or a surface transmittance override, not both')
+                surface['transmittance'] = glazing.broadband_solar_transmittance
+                if surface['reflectance'] + surface['transmittance'] > 1 + 1e-12:
+                    raise ValueError('Spectral solar transmittance plus shortwave reflectance exceeds one')
+        audit['spectral_window'] = {
+            'solar_transmittance': glazing.broadband_solar_transmittance,
+            'visible_transmittance': glazing.visible_transmittance,
+            'near_infrared_transmittance': glazing.near_infrared_transmittance}
+    if dcfg.get('enabled', False):
+        din = {'facade': facade, 'roof': roof}
+        if irradiance is not None:
+            for key in ('facade_primary','roof_primary','facade_reflected','roof_reflected'):
+                if key in irradiance:
+                    din[key] = irradiance[key]
+        daylight = model_from_building(building, climate, din,
+                                       values['LightingHeatGain'], dcfg)
+        for h, hour in enumerate(payload['hours']):
+            hour['internal_w'] += float(daylight.lighting_w[h] - light_baseline_w[h])
+        audit['lighting_electricity_w'] = daylight.lighting_w.tolist()
+        audit['daylighting'] = daylight.audit(include_groups=True)
+    if (options.get('longwave') or {}).get('enabled',False):
+        from UHI.spectral import attach_to_payload
+        attach_to_payload(payload,options['longwave'])
+        audit['longwave']='V9.1 Planck bands; isolated standalone sky/ground boundary, replaced by spectral network in coupled mode.'
+    json.dumps(payload, allow_nan=False)
+    return payload, audit

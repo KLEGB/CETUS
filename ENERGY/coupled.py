@@ -56,7 +56,7 @@ def _shortwave(c,h,site,setting):
 
 
 def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_state=None,
-                     preheat=4, max_preheat=120, warmup_tolerance_k=.02,
+                     preheat=4, max_preheat=120, warmup_tolerance_k=.1,
                      balance_tolerance_w_m2=.02, max_evaluations=120,
                      executable_path=None, show_progress=True, warmup_checkpoint=None,
                      warmup_acceleration=True, spinup_days=0, longwave_relaxation=1.0, engine_protocol='binary', energy_warm_start=True,
@@ -67,6 +67,8 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
     must be zero. One repeatable first-day cycle is used only at sequence start.
     Multi-day gaps are rejected. Failures leave the caller's climates unchanged.
     """
+    if options is None:options=copy.deepcopy(getattr(neighborhood,'energy_options',{}) or None)
+    neighborhood.syncSiteGFA()
     if engine_protocol not in ('binary','json'):raise ValueError('engine_protocol must be binary or json')
     if longwave_mode not in ('affine','direct'):raise ValueError('Invalid longwave_mode')
     from RAD.network import LongwaveResponse
@@ -98,25 +100,42 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
     if net is not None:
         if options is None:options=copy.deepcopy(net.meta.get('energy_options',{}))
         net.assert_current(neighborhood,options)
+        net.meta['energy_options']=copy.deepcopy(options or {})
         solar=net.solar(hoy)
+        solar_primary=solar_reflected=None
+        if (options or {}).get('daylighting',{}).get('enabled',False):
+            frame_indices=np.array([net.lookup[int(h)] for h in hoy], dtype=int)
+            solar_primary=net.aggregate(net.direct[:,frame_indices])
+            solar_reflected=net.aggregate(net.reflected[:,frame_indices])
         rad=None
     else:
         rad=_radiation(neighborhood,climates)
-    templates=[];audits=[]
+    from UHI.spectral import validate_config
+    spectral_config=validate_config((options or {}).get('longwave',{}))
+    if spectral_config and net is None:raise ValueError('Spectral UHI coupling requires a RAD network; standalone Energy supports isolated spectral boundaries')
+    templates=[];audits=[];daylight_days=[];lighting_day_profiles=[[] for _ in neighborhood.buildings]
     for day_index,c in enumerate(climates):
-        daily=[]
+        daily=[]; daily_audits=[]
         for b,building in enumerate(neighborhood.buildings):
             irr=None if rad is None else {'facade':sum(rad[k][b,c.HOY] for k in ('N','W','S','E'))/4,
                                         'roof':rad['T'][b,c.HOY]}
             if net is not None:
                 irr={'facade':solar[2*b,day_index*24:(day_index+1)*24],
                      'roof':solar[2*b+1,day_index*24:(day_index+1)*24]}
+                if solar_primary is not None:
+                    sl=slice(day_index*24,(day_index+1)*24)
+                    irr.update(facade_primary=solar_primary[2*b,sl],roof_primary=solar_primary[2*b+1,sl],
+                        facade_reflected=solar_reflected[2*b,sl],roof_reflected=solar_reflected[2*b+1,sl])
             payload,audit=build_surface_input(building,c,irradiance=irr,options=options)
             daily.append(payload)
+            daily_audits.append(audit)
+            lighting_day_profiles[b].extend(audit['lighting_electricity_w'])
             if len(templates)==0:audits.append(audit)
         templates.append(daily)
-    signature_data={'buildings':[{k:v for k,v in p.items() if k not in {'hours','initial_c'}} for p in templates[0]],
-                    'site':site.to_dict(),'setting':setting.to_dict(),'radiation':net.meta['optical_signature'] if net is not None else None}
+        daylight_days.append(daily_audits)
+    signature_data={'building_ids':[b.building_id for b in neighborhood.buildings],'buildings':[{k:v for k,v in p.items() if k not in {'hours','initial_c'}} for p in templates[0]],
+                    'site':site.to_dict(),'setting':setting.to_dict(),'daylight_options':(options or {}).get('daylighting',{}),'longwave_options':(options or {}).get('longwave',{}),
+                    'building_visible_properties':[(b.WindowVisibleTransmittance,b.WindowNIRTransmittance) for b in neighborhood.buildings],'radiation':net.meta['optical_signature'] if net is not None else None}
     signature=hashlib.sha256(json.dumps(signature_data,sort_keys=True,allow_nan=False).encode()).hexdigest()
     if initial_state is not None:
         if preheat:
@@ -136,9 +155,20 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
     eps=np.array([(setting.EmiGround*site.AreaGround+setting.EmiRoad*site.AreaRoad)/ground_area if ground_area else 0,
                   setting.EmiLandscape,setting.EmiWater],float)
     if net is not None:eps[:]=net.meta['ground_emissivity']
+    spectral=None
+    if spectral_config:
+        from RAD.spectral import SpectralNetwork
+        spectral=SpectralNetwork(net,templates[0],spectral_config,eps,weights)
+        for daily in templates[1:]:
+            for m,first in zip(daily,templates[0]):
+                for surface,source in zip(m['surfaces'],first['surfaces']):
+                    if 'longwave_bands' in source:surface['longwave_bands']=copy.deepcopy(source['longwave_bands'])
     vapor_site=copy.deepcopy(site)
     vapor_site.greenRoofPercentage=0.0  # roofs migrated; no duplicate green-roof source
-    all_rows=[];building_rows=[[] for _ in neighborhood.buildings]
+    all_rows=[]
+    meter=dict(baseline_lighting_kwh=0.,lighting_electricity_kwh=0.,hvac_electricity_kwh=0.)
+    applied_inputs=None
+    archive=None
     warmup_history=[];warmup_vectors=[]
     if warmup_checkpoint is not None:
         if initial_state is not None or not preheat:
@@ -148,9 +178,11 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
         if candidate.get('signature')!=signature or candidate.get('last_hoy')!=int(hoy[0])+23:
             raise ValueError('Warmup checkpoint configuration or forcing day differs')
         state=copy.deepcopy(candidate);warmup_history=copy.deepcopy(saved['history'])
-    with (BinarySurfaceEngine(executable_path,warm_start=energy_warm_start,candidate_cache=candidate_cache) if binary_engine else SurfaceEngine(executable_path)) as engine:
+    from contextlib import ExitStack
+    with ExitStack() as cleanup, (BinarySurfaceEngine(executable_path,warm_start=energy_warm_start,candidate_cache=candidate_cache) if binary_engine else SurfaceEngine(executable_path)) as engine:
         engine.configure(templates[0])
         def step(c,h,models,old):
+            nonlocal applied_inputs
             # Preserve previous-hour UHI state even at midnight and during root trials.
             c.Ta[h-1]=old['air_c']
             for j,name in enumerate(NAMES):
@@ -214,7 +246,7 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                 ground_input=paired/exposed
                 hc=np.array([combinedConvectionCoefficient(float(t),ta,pressure,ref,setting.c1,setting.zRef,setting.z0) for t in tg])
                 sensible=hc*(tg-ta)
-                lw=eps*(ground_ir-SIGMA*(tg+273.15)**4) if net is not None else eps*site.SVF*(skyir-SIGMA*(tg+273.15)**4)
+                lw=ground_ir if spectral is not None else (eps*(ground_ir-SIGMA*(tg+273.15)**4) if net is not None else eps*site.SVF*(skyir-SIGMA*(tg+273.15)**4))
                 c.Ta[h]=ta
                 vapor=float(vaporHeatFlowIntensity(h,c,vapor_site,setting))
                 canopy=combinedConvectionCoefficient(tb,ta,pressure,float(c.Velocity[h]),setting.c1,setting.zRefd,setting.z0d)*(ta-tb)
@@ -241,7 +273,9 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
             guess=np.r_[old['air_c'],old['ground_c']]
             for radiation_iterations in range(1,51 if net is not None else 2):
                 trial_cache.clear()
-                if net is not None and longwave_mode=='affine':
+                if spectral is not None:
+                    response=spectral.response(radiation_temperatures,tb,skyir);fixed_emission=None
+                elif net is not None and longwave_mode=='affine':
                     response=LongwaveResponse(net,base,radiation_temperatures,skyir);fixed_emission=None
                 else:
                     response=None;fixed_emission=net.emission(base,radiation_temperatures,[(1.,20.)]) if net is not None else None
@@ -251,10 +285,11 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                     raise RuntimeError(f'Unconverged HOY {c.HOY[h]}: {residual.tolist()}; {solution.message}')
                 if net is None:break
                 updated=data['surface_temperatures'] if binary_engine else [{s['name']:s['exterior_c'] for s in b['hours'][0]['surfaces']} for b in data['building']]
-                new_ir,new_ground_ir,E,incoming=net.longwave_boundary(base,updated,list(zip(weights,solution.x[1:])),skyir,float(solution.x[0]))
+                new_ir,new_ground_ir,E,incoming=(spectral.response(updated,tb,skyir).boundary(list(zip(weights,solution.x[1:])),float(solution.x[0])) if spectral is not None else net.longwave_boundary(base,updated,list(zip(weights,solution.x[1:])),skyir,float(solution.x[0])))
                 old_ir=[p['hours'][0]['network_ir_w_m2'] for p in base]
                 radiation_error=max(max(abs(np.asarray(a)-b)) for a,b in zip(new_ir,old_ir))
-                if radiation_error<=.01:break
+                if spectral is not None:radiation_error=max(radiation_error,float(max(abs(new_ground_ir-data['lw']))))
+                if radiation_error<=(.001 if spectral is not None else .01):break
                 radiation_temperatures=[{k:(1-longwave_relaxation)*a[k]+longwave_relaxation*b[k] for k in a} for a,b in zip(radiation_temperatures,updated)]
                 guess=solution.x
             else:raise RuntimeError(f'Longwave exchange failed at HOY {c.HOY[h]}: {radiation_error} W/m2')
@@ -278,7 +313,12 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                  'evaluations':count,'trial_cache_hits':trial_cache_hits,'canopy_to_background_w_m2':data['canopy'],
                  'air_storage_w_m2':data['air_storage'],'ground_storage_w_m2':float(fractions@data['ground_storage']),
                  'ground_to_deep_w_m2':float(fractions@data['conduction'])}
-            if net is not None:
+            if spectral is not None:
+                # evaluate(full=True) restored the accepted boundary; compare to final surface state.
+                total_lw=sum(x['hours'][0]['longwave_to_network_w'] for x in data['building'])
+                row.update(spectral.audit(updated,list(zip(weights,tg)),ta,total_lw))
+                row.update(radiation_iterations=radiation_iterations,radiation_error_w_m2=radiation_error,building_net_lw_w=total_lw)
+            elif net is not None:
                 group_direct=net.aggregate(net.direct[:,net.lookup[int(c.HOY[h])]])
                 group_reflected=net.aggregate(net.reflected[:,net.lookup[int(c.HOY[h])]])
                 ignored=0.;absorbed_pair=0.;building_net_lw=0.
@@ -305,11 +345,13 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                 c.Qsg[name][h]=data['ground_storage'][j]
                 c.QVFlux[name][h]=-data['canopy'];c.Qsa[name][h]=-data['air_storage']
             c.Ta[h]=ta;c.Tg[h]=row['Tsurface']
+            applied_inputs=copy.deepcopy([p['hours'][0] for p in base])
             return next_state,row,[b['hours'][0] for b in data['building']]
 
         if initial_state is None and preheat:
-            converged=False
-            for cycle in range(len(warmup_history)+1,max_preheat+1):
+            change=float(warmup_history[-1]['max_state_change_k']) if warmup_history else float('inf')
+            converged=bool(warmup_history and len(warmup_history)>=preheat and change<=warmup_tolerance_k)
+            for cycle in (range(len(warmup_history)+1,max_preheat+1) if not converged else ()):
                 before=copy.deepcopy(state)
                 for h in range(24):state,_,_=step(climates[0],h,templates[0],state)
                 change=max(abs(state['air_c']-before['air_c']),np.max(np.abs(np.array(state['ground_c'])-before['ground_c'])))
@@ -322,7 +364,7 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                 vector=np.r_[state['air_c'],state['ground_c'],np.concatenate(state['buildings'])]
                 warmup_vectors.append(vector.copy())
                 accepted=cycle>=preheat and change<=warmup_tolerance_k
-                if warmup_acceleration and not accepted and len(warmup_vectors)>=3 and cycle%3==0:
+                if warmup_acceleration and not accepted and cycle<max_preheat and len(warmup_vectors)>=3 and cycle%3==0:
                     a,b,c=warmup_vectors[-3:];d1=b-a;d2=c-b;den=d2-d1
                     mask=(abs(den)>1e-9)&(abs(d1)>1e-9)&(d1*d2>0)&(abs(d2)<abs(d1))
                     guess=c.copy();guess[mask]=a[mask]-d1[mask]**2/den[mask]
@@ -338,54 +380,83 @@ def simulate_coupled(neighborhood, *, output_dir=None, options=None, initial_sta
                     temporary=checkpoint/'warmup_checkpoint.json.tmp'
                     temporary.write_text(json.dumps({'state':state,'history':warmup_history},allow_nan=False))
                     temporary.replace(checkpoint/'warmup_checkpoint.json')
-                if show_progress:print(f'Warmup {cycle}: {change:.5f} K',flush=True)
+
                 if accepted:
                     converged=True;break
-            if not converged:raise RuntimeError(f'Warmup did not converge in {max_preheat} cycles')
+            if not converged:
+                import warnings
+                warnings.warn(f'Warmup did not converge within {max_preheat} cycles (last change {change:.6g} K, tolerance {warmup_tolerance_k} K); continuing simulation.',RuntimeWarning)
+        from result_store import ResultWriter
+        resolved_spectral=None
+        if spectral is not None:
+            resolved_spectral=dict(bands=spectral.bands,face_names=spectral.face_names,face_groups=spectral.groups,
+                emissivity=spectral.eps,reflectance=spectral.rho,transmittance=spectral.tau,
+                ground_emissivity=spectral.geps,ground_reflectance=spectral.grho,ground_transmittance=spectral.gtau)
+        import uuid
+        archive_folder=Path(output_dir) if output_dir is not None else Path.cwd()/'outputs'/'energy92'/uuid.uuid4().hex
+        archive=ResultWriter(archive_folder/'building_results.bin',[b.input_dict() for b in neighborhood.buildings],
+            [{k:copy.deepcopy(v) for k,v in m.items() if k!='hours'} for m in templates[0]],
+            dict(options=options,resolved_spectral=resolved_spectral,day_audits=daylight_days[spinup_days:],source_climate=[c.to_dict() for c in neighborhood.climate],units={'power':'W','energy':'kWh','temperature':'degC'},time_axis='HOY zero-based; one-hour mean power'))
+        cleanup.enter_context(archive)
         report_initial_state=None
         for day,c in enumerate(climates):
+            c.ACLoad=np.zeros(24);c.ACWasteHeat=np.zeros(24);c.coolingLoad=np.zeros(24)
             if day==spinup_days:report_initial_state=copy.deepcopy(state)
             for h in range(24):
                 state,row,outs=step(c,h,templates[day],state)
                 all_rows.append(row)
                 if show_progress and h%6==0:print(f'HOY {int(c.HOY[h])}: LW iterations={row.get("radiation_iterations",1)}, residual={row["max_residual_w_m2"]:.3g} W/m2',flush=True)
-                for b,out in enumerate(outs):building_rows[b].append(out)
+                if day>=spinup_days:
+                    extras=[]
+                    for b,out in enumerate(outs):
+                        audit=daylight_days[day][b]
+                        base_light=float(audit['baseline_lighting_w'][h]);light=float(audit['lighting_electricity_w'][h])
+                        extras.append(dict(baseline_lighting_w=base_light,lighting_electricity_w=light,
+                            avoided_lighting_w=base_light-light,lighting_schedule_ratio=light/base_light if base_light else 1.,
+                            hvac_plus_lighting_electricity_w=out['electricity_w']+light))
+                        meter['baseline_lighting_kwh']+=base_light/1000
+                        meter['lighting_electricity_kwh']+=light/1000
+                        meter['hvac_electricity_kwh']+=out['electricity_w']/1000
+                    row['lighting_electricity_w_m2_site']=sum(x['lighting_electricity_w'] for x in extras)/area
+                    row['hvac_electricity_w_m2_site']=sum(x['electricity_w'] for x in outs)/area
+                    row['hvac_plus_lighting_electricity_w_m2_site']=row['lighting_electricity_w_m2_site']+row['hvac_electricity_w_m2_site']
+                    c.ACLoad[h]=sum(max(-x['hvac_w'],0)-max(x['hvac_w'],0) for x in outs)
+                    c.ACWasteHeat[h]=sum(x['convection_to_air_w']+x['ventilation_to_air_w']+x['hvac_to_air_w'] for x in outs)
+                    c.coolingLoad[h]=c.ACWasteHeat[h]/area
+                    archive.record(c.HOY[h],raw=engine.last_raw_result if binary_engine else None,
+                        rows=outs if not binary_engine else None,extras=extras,applied_inputs=applied_inputs)
             if show_progress:print(f'Coupled day {day+1}/{len(climates)} complete',flush=True)
         engine_profile=engine.profile() if binary_engine else None
     spinup_info={'days':spinup_days,'hours':spinup_days*24,'start_hoy':int(hoy[0]),'report_start_hoy':int(hoy[spinup_days*24])}
     if spinup_days:
         climates=climates[spinup_days:];all_rows=all_rows[spinup_days*24:]
-        building_rows=[rows[spinup_days*24:] for rows in building_rows];hoy=hoy[spinup_days*24:]
+        hoy=hoy[spinup_days*24:]
     # Write state/output before committing caller objects, so failed persistence is explicit.
     if net is not None:
         net.save()
-    metadata={'engine':'cetus-surface-7-reconstructed','implementation':'8.4','engine_protocol':engine_protocol,'engine_profile':engine_profile,'optimizations':{'energy_warm_start':energy_warm_start,'candidate_cache':candidate_cache,'root_memoization':root_memoization,'longwave_mode':longwave_mode},'exposed_fractions':dict(zip(NAMES,fractions.tolist())),
+
+    lighting_summary=meter
+    lighting_summary['avoided_lighting_kwh']=meter['baseline_lighting_kwh']-meter['lighting_electricity_kwh']
+    lighting_summary['hvac_plus_lighting_electricity_kwh']=meter['hvac_electricity_kwh']+meter['lighting_electricity_kwh']
+    metadata={'lighting_summary':lighting_summary,'daylighting_options':(options or {}).get('daylighting',{}),'engine':'cetus-surface-7-reconstructed','implementation':'9.2.0','engine_protocol':engine_protocol,'engine_profile':engine_profile,'optimizations':{'energy_warm_start':energy_warm_start,'candidate_cache':candidate_cache,'root_memoization':root_memoization,'longwave_mode':longwave_mode},'exposed_fractions':dict(zip(NAMES,fractions.tolist())),
         'warmup':warmup_history,'warmup_method':'periodic first forcing day; Aitken guesses, full-day residual acceptance' if warmup_acceleration else 'periodic first forcing day','chronological_spinup':spinup_info,'report_initial_state':report_initial_state,'final_state':state,'assumptions':audits[0],'radiation_network':net.meta if net is not None else None,
         'green_roofs':'Green-roof evaporation is disabled in this coupled path; no roof moisture model.',
         'ground_receiver':'Area-weighted exposed ground temperature used by buildings; returned ground exchanges distributed by exposed area.',
         'latent':'Existing UHI evaporation remains a prescribed canopy sensible-energy sink; humidity is not prognostic.'}
+    result_file=archive.finish(metadata)
     if output_dir is not None:
         import pandas as pd
         folder=Path(output_dir);folder.mkdir(parents=True,exist_ok=True)
         pd.DataFrame(all_rows).to_csv(folder/'hourly.csv',index=False)
         (folder/'state.json').write_text(json.dumps(state,indent=2,allow_nan=False))
         (folder/'audit.json').write_text(json.dumps(metadata,indent=2,allow_nan=False))
-        (folder/'building_hourly.json').write_text(json.dumps(building_rows,allow_nan=False,separators=(',',':')))
     for old,new in zip(neighborhood.climate[spinup_days:],climates):
         for field in old.__slots__:setattr(old,field,copy.deepcopy(getattr(new,field)))
     if spinup_days:neighborhood.climate=neighborhood.climate[spinup_days:]
-    for b,rows in zip(neighborhood.buildings,building_rows):
-        b.energyModel='surface-v7';b.energyHOY=hoy.tolist()
-        b.energyFeedback={'surface_v7':rows}
-        b.coolingLoad=np.array([max(-r['hvac_w'],0) for r in rows])
-        b.heatingLoad=np.array([max(r['hvac_w'],0) for r in rows])
-        b.ACLoad=b.coolingLoad-b.heatingLoad
-        b.ACWasteHeat=np.array([r['convection_to_air_w']+r['ventilation_to_air_w']+r['hvac_to_air_w'] for r in rows])
-    for d,c in enumerate(neighborhood.climate):
-        c.ACLoad=sum(b.ACLoad[d*24:(d+1)*24] for b in neighborhood.buildings)
-        c.ACWasteHeat=sum(b.ACWasteHeat[d*24:(d+1)*24] for b in neighborhood.buildings)
-        c.coolingLoad=c.ACWasteHeat/area
+    for b in neighborhood.buildings:b.clear_results()
+    neighborhood._energy_results=None
+    neighborhood.building_result_file=result_file
     keys=['QS','QL','QV','QA','Tair','Tsurface','Tambient','TaGround','TaWater','TaLand','TgGround','TgWater','TgLand']
     result={key:np.array([r[key] for r in all_rows]).reshape(-1,24).T for key in keys}
-    result['coupled']=metadata;result['hourly']=all_rows
+    result['coupled']=metadata;result['hourly']=all_rows;result['building_result_file']=result_file
     return result

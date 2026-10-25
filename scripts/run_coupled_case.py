@@ -86,16 +86,18 @@ def main():
     import geopandas as gpd
     gdf=gpd.read_file(shp).to_crs(4326)
     centroid=gdf.geometry.union_all().centroid
+    from result_store import read_results
+    external=read_results(result['building_result_file'])
     summary=dict(buildings=len(n.buildings),hours=len(result['hourly']),start_hoy=start,
         max_balance_residual_w_m2=max(r['max_residual_w_m2'] for r in result['hourly']),
         mean_warming_k=float(np.mean(result['Tair']-result['Tambient'])),
-        max_building_balance_w=max(abs(r['balance_residual_w']) for b in n.buildings for r in b.energyFeedback['surface_v7']),
+        max_building_balance_w=max(abs(r['balance_residual_w']) for b in external['buildings'] for r in b['hours']),
         wall_u_min=min(b.WallUValue for b in n.buildings),wall_u_below_01=sum(b.WallUValue<.1 for b in n.buildings),
         max_shortwave_partition_residual_w=max(abs(v['incident_w']-v['reflected_w']-v['absorbed_w']-v['transmitted_w'])
-            for b in n.buildings for r in b.energyFeedback['surface_v7'] for v in r['surfaces']),
+            for b in external['buildings'] for r in b['hours'] for v in r['surfaces']),
         max_storage_power_conversion_residual_w=max(abs(v['storage_delta_kwh']*1000-v['storage_w'])
-            for b in n.buildings for r in b.energyFeedback['surface_v7'] for v in r['surfaces']),
-        max_window_storage_w=max(abs(s['storage_w']) for b in n.buildings for r in b.energyFeedback['surface_v7'] for s in r['surfaces'] if s['name'] in {'window','skylight'}),
+            for b in external['buildings'] for r in b['hours'] for v in r['surfaces']),
+        max_window_storage_w=max(abs(s['storage_w']) for b in external['buildings'] for r in b['hours'] for s in r['surfaces'] if s['name'] in {'window','skylight'}),
         warmup=result['coupled']['warmup'],input_sha256=hashlib.sha256(args.input_zip.read_bytes()).hexdigest(),
         shapefile_lon_lat=[centroid.x,centroid.y],epw_location=epw2location(epw).__dict__,
         sky='Isotropic diffuse + nearest Tregenza beam, GHI normalized; not Perez.',

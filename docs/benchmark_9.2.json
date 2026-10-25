@@ -1,0 +1,68 @@
+{
+  "physical_results": {
+    "shape": [
+      756,
+      72,
+      9
+    ],
+    "maximum_absolute_difference": 0.0
+  },
+  "city_results": {
+    "shape": [
+      3,
+      96
+    ],
+    "maximum_absolute_difference": 4.172325134277344e-07
+  },
+  "neighborhood_reduction_percent": 98.75162514953469,
+  "version_9_1": {
+    "version": "9.1",
+    "buildings": 756,
+    "hours": 72,
+    "seconds": 220.3536289399999,
+    "warmup_cycles": 8,
+    "neighborhood_before_bytes": 4087072,
+    "neighborhood_after_bytes": 260915221,
+    "building_results_bytes": 163335722,
+    "max_site_residual_w_m2": 3.6552769419632997e-06,
+    "max_building_residual_w": 1.720036379992962e-08,
+    "lighting_summary": {
+      "baseline_lighting_kwh": 503856.44227157475,
+      "lighting_electricity_kwh": 361046.282812066,
+      "hvac_electricity_kwh": 946398.7512985242,
+      "avoided_lighting_kwh": 142810.15945950872,
+      "hvac_plus_lighting_electricity_kwh": 1307445.0341105903
+    }
+  },
+  "version_9_2": {
+    "version": "9.2",
+    "buildings": 756,
+    "hours": 72,
+    "seconds": 229.28841572300007,
+    "warmup_cycles": 8,
+    "neighborhood_before_bytes": 3223357,
+    "neighborhood_after_bytes": 3257200,
+    "building_results_bytes": 34882250,
+    "max_site_residual_w_m2": 3.6552769419632997e-06,
+    "max_building_residual_w": 1.720036379992962e-08,
+    "lighting_summary": {
+      "baseline_lighting_kwh": 503856.44227157946,
+      "lighting_electricity_kwh": 361046.282812069,
+      "hvac_electricity_kwh": 946398.751298524,
+      "avoided_lighting_kwh": 142810.15945951047,
+      "hvac_plus_lighting_electricity_kwh": 1307445.034110593
+    }
+  },
+  "city_fields": {
+    "ACLoad_Wh": 1.1920928955078125e-07,
+    "ACWasteHeat_Wh": 4.172325134277344e-07,
+    "Ta_C": 0.0,
+    "Tg_C": 0.0
+  },
+  "all_building_fields": {
+    "shared_numeric_fields": 4393152,
+    "maximum_absolute_difference": 0.0,
+    "buildings": 756,
+    "hours": 72
+  }
+}

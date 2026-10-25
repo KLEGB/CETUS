@@ -25,15 +25,8 @@ MOOSAS_RAD_EXE = RAD_BIN_DIR / ("MoosasRad.exe" if platform.system() == "Windows
 
 def ensure_local_rad_binary() -> None:
     """Build the native ray engine when needed; preserve the Windows binary."""
-    source = RAD_BIN_DIR / "MoosasRad.go"
-    if platform.system() != "Windows" and (not MOOSAS_RAD_EXE.exists() or source.stat().st_mtime > MOOSAS_RAD_EXE.stat().st_mtime):
-        compiler = os.environ.get("CETUS_GO") or shutil.which("go")
-        if not compiler:
-            raise RuntimeError("Go 1.22+ is required to build the native RAD engine")
-        subprocess.run([compiler, "build", "-o", str(MOOSAS_RAD_EXE), str(source)],
-                       check=True, capture_output=True, timeout=120)
-    if not MOOSAS_RAD_EXE.exists():
-        raise FileNotFoundError(MOOSAS_RAD_EXE)
+    if not MOOSAS_RAD_EXE.is_file():raise FileNotFoundError(MOOSAS_RAD_EXE)
+    if platform.system()!='Windows':MOOSAS_RAD_EXE.chmod(MOOSAS_RAD_EXE.stat().st_mode | 0o755)
 
 
 def _geo_face_block(face_id: str, normal: np.ndarray, loop: np.ndarray) -> str:

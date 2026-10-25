@@ -245,6 +245,8 @@ class Neighborhood:
     _radiation_network: object | None = None
     _height_field: str = "height"
     _energy_results: list[dict[str, object]] | None = None
+    building_result_file: str | None = None
+    energy_options: dict = field(default_factory=dict)
 
     @property
     def radiation_network(self):
@@ -257,6 +259,13 @@ class Neighborhood:
     def syncSiteGFA(self) -> None:
         """Use the complete building inventory as the source of site floor area."""
         if self.buildings:
+            used={b.building_id for b in self.buildings if b.building_id}
+            for i,b in enumerate(self.buildings):
+                if not b.building_id:
+                    candidate=f'B{i:06d}'
+                    while candidate in used:candidate+='x'
+                    b.building_id=candidate;used.add(candidate)
+            if len(used)!=len(self.buildings):raise ValueError('Duplicate building_id')
             areas = np.asarray([building.GFA for building in self.buildings], dtype=np.float64)
             if not np.all(np.isfinite(areas)) or np.any(areas < 0):
                 raise ValueError("Building GFA must be finite and non-negative.")
@@ -624,6 +633,8 @@ class Neighborhood:
             if radFile is not None:
                 net = RadiationNetwork.load(radFile)
                 net.assert_current(self, energy_options)
+                if energy_options is not None:
+                    net.meta["energy_options"] = copy.deepcopy(energy_options)
                 # V8.1 restores absorption at opaque-to-IR window exterior nodes.
                 ignore = bool(network_options.pop('ignore_window_longwave', False))
                 changed = net.meta.get('ignore_window_longwave', False) != ignore
@@ -839,6 +850,16 @@ class Neighborhood:
         self.syncSiteGFA()
         expected_hoys = np.concatenate([np.asarray(c.HOY, dtype=int) for c in self.climate]).tolist()
         selected_set = set(selected_indices)
+        if len(selected_set)<len(self.buildings):
+            from .result_compat import previous_results
+            prior={int(x['building_index']):x for x in previous_results(self)}
+            for i,b in enumerate(self.buildings):
+                if i not in selected_set:
+                    if i not in prior:raise ValueError('Unselected buildings require a matching external legacy result archive')
+                    old=prior[i]
+                    for key in ('load','coolingLoad','heatingLoad','ACLoad','ACWasteHeat'):setattr(b,key,np.asarray(old[key]))
+                    b.energyHOY=list(old['energyHOY']);b.energyModel='legacy'
+                    b.loadDecompose=copy.deepcopy(old.get('loadDecompose',{}))
         for index, building in enumerate(self.buildings):
             if index not in selected_set:
                 if building.energyModel != "legacy":
@@ -923,15 +944,8 @@ class Neighborhood:
 
         self._writeEnergyFeedback()
 
-        self._energy_results = [
-            {
-                **result,
-                "load": np.asarray(result["load"], dtype=np.float32).tolist(),
-                "coolingLoad": np.asarray(result["coolingLoad"], dtype=np.float32).tolist(),
-                "heatingLoad": np.asarray(result["heatingLoad"], dtype=np.float32).tolist(),
-            }
-            for result in results
-        ]
+        from .result_compat import persist
+        persist(self,results,simulation_root,'legacy')
         return results
 
     def writeEPW(self, epwPath: str | Path) -> Path:
@@ -992,7 +1006,7 @@ class Neighborhood:
         """Serialize the neighborhood workflow state to a JSON-compatible dict."""
         self.syncSiteGFA()
         return {
-            "buildings": [building.to_dict() for building in self.buildings],
+            "buildings": [building.input_dict() for building in self.buildings],
             "site": self.site.to_dict(),
             "climate": [climate.to_dict() for climate in self.climate],
             "location": {
@@ -1016,7 +1030,8 @@ class Neighborhood:
             "_mtx": self._mtx,
             "_rad": self._rad,
             "_height_field": self._height_field,
-            "_energy_results": self._energy_results,
+            "building_result_file": self.building_result_file,
+            "energy_options": copy.deepcopy(self.energy_options),
         }
 
     @classmethod
@@ -1039,8 +1054,10 @@ class Neighborhood:
             _mtx=data.get("_mtx"),
             _rad=data.get("_rad"),
             _height_field=str(data.get("_height_field", "height")),
-            _energy_results=data.get("_energy_results"),
+            building_result_file=data.get("building_result_file"),
+            energy_options=copy.deepcopy(data.get("energy_options",{})),
         )
+        for b in neighborhood.buildings:b.clear_results()
         return neighborhood
 
     def to_dict(self) -> dict[str, object]:

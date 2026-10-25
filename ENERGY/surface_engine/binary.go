@@ -322,6 +322,54 @@ func (s *binarySession) handle(op uint16, raw []byte) ([]byte, error) {
 			putF(b, v)
 		}
 
+	case 10:
+		if s.step != nil {
+			return nil, fmt.Errorf("spectral registration requires an inactive session")
+		}
+		count := int(r.u())
+		if count != len(s.models) {
+			return nil, fmt.Errorf("spectral model count differs")
+		}
+		all := make([][]Surface, count)
+		for i, m := range s.models {
+			n := int(r.u())
+			if n != len(m.p.Surfaces) {
+				return nil, fmt.Errorf("spectral surface count differs")
+			}
+			surfaces := append([]Surface(nil), m.p.Surfaces...)
+			for j := range surfaces {
+				nb := int(r.u())
+				if nb < 0 || nb > 128 {
+					return nil, fmt.Errorf("invalid spectral band count")
+				}
+				surfaces[j].LWBands = make([]LWBand, nb)
+				for k := range surfaces[j].LWBands {
+					lo, hi, e := r.f(), r.f(), r.f()
+					var upper *float64
+					if hi != -1 {
+						v := hi
+						upper = &v
+					}
+					surfaces[j].LWBands[k] = LWBand{Lower: lo, Upper: upper, Eps: e}
+				}
+				if r.err != nil {
+					return nil, r.err
+				}
+				if e := prepareBands(&surfaces[j]); e != nil {
+					return nil, e
+				}
+			}
+			all[i] = surfaces
+		}
+		if r.p != len(raw) {
+			return nil, fmt.Errorf("trailing spectral registration bytes")
+		}
+		for i := range s.models {
+			s.models[i].p.Surfaces = all[i]
+			s.models[i].valid = false
+			s.models[i].w.guess = nil
+		}
+		putU(b, uint32(count))
 	case 4:
 		id := r.id()
 		if len(raw) != 8 || id != s.stepID {
