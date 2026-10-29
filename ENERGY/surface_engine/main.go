@@ -19,6 +19,9 @@ type Layer struct {
 	C float64 `json:"capacity_j_m2k"`
 }
 type Surface struct {
+	Boundary  string   `json:"boundary_condition,omitempty"`
+	SourceID  string   `json:"source_element_id,omitempty"`
+	InsideEps *float64 `json:"inside_emissivity,omitempty"`
 	LWBands   []LWBand `json:"longwave_bands,omitempty"`
 	Name      string   `json:"name"`
 	Kind      string   `json:"kind"`
@@ -37,21 +40,23 @@ type Surface struct {
 	Layers    []Layer  `json:"layers,omitempty"`
 }
 type Hour struct {
-	NetworkIR []float64 `json:"network_ir_w_m2,omitempty"`
-	Air       float64   `json:"air_c"`
-	Ground    float64   `json:"ground_c"`
-	SkyIR     float64   `json:"sky_ir_w_m2"`
-	Irr       []float64 `json:"irradiance_w_m2"`
-	Internal  float64   `json:"internal_w"`
-	Heat      float64   `json:"heat_setpoint_c"`
-	Cool      float64   `json:"cool_setpoint_c"`
-	Vent      float64   `json:"ventilation_w_k"`
-	Ho        []float64 `json:"ho_w_m2k,omitempty"`
+	HVACEnabled *bool     `json:"hvac_enabled,omitempty"`
+	NetworkIR   []float64 `json:"network_ir_w_m2,omitempty"`
+	Air         float64   `json:"air_c"`
+	Ground      float64   `json:"ground_c"`
+	SkyIR       float64   `json:"sky_ir_w_m2"`
+	Irr         []float64 `json:"irradiance_w_m2"`
+	Internal    float64   `json:"internal_w"`
+	Heat        float64   `json:"heat_setpoint_c"`
+	Cool        float64   `json:"cool_setpoint_c"`
+	Vent        float64   `json:"ventilation_w_k"`
+	Ho          []float64 `json:"ho_w_m2k,omitempty"`
 	// Explicit compatibility gains only for validation inputs; never combined with optical gains.
 	Transmitted float64 `json:"additional_transmitted_w,omitempty"`
 	GlassInward float64 `json:"additional_glass_inward_w,omitempty"`
 }
 type Input struct {
+	ZoneID     string    `json:"zone_id,omitempty"`
 	Protocol   string    `json:"protocol"`
 	Dt         float64   `json:"dt_s"`
 	Surfaces   []Surface `json:"surfaces"`
@@ -115,11 +120,14 @@ type topology struct {
 
 func finite(x float64) bool { return !math.IsNaN(x) && !math.IsInf(x, 0) }
 func validate(p Input) error {
-	if p.Protocol != "cetus-surface-7" || p.Dt <= 0 || p.COPc <= 0 || p.COPh <= 0 || len(p.Surfaces) == 0 || len(p.Hours) == 0 {
+	if (p.Protocol != "cetus-surface-7" && p.Protocol != "cetus-surface-8") || !finite(p.Dt) || p.Dt <= 0 || !finite(p.COPc) || p.COPc <= 0 || !finite(p.COPh) || p.COPh <= 0 || len(p.Surfaces) == 0 || (len(p.Hours) == 0 && p.Protocol != "cetus-surface-8") {
 		return fmt.Errorf("invalid protocol, dt, COP or empty input")
 	}
-	if p.Radiant < 0 || p.Radiant > 1 || p.SolarFloor < 0 || p.SolarFloor > 1 {
+	if !finite(p.InitialC) || p.InitialC <= -273.15 || !finite(p.Radiant) || !finite(p.SolarFloor) || p.Radiant < 0 || p.Radiant > 1 || p.SolarFloor < 0 || p.SolarFloor > 1 {
 		return fmt.Errorf("invalid radiant or solar floor fraction")
+	}
+	if p.Protocol == "cetus-surface-8" && p.ZoneID == "" {
+		return fmt.Errorf("missing zone_id")
 	}
 	names := map[string]bool{}
 	for _, s := range p.Surfaces {
@@ -127,7 +135,7 @@ func validate(p Input) error {
 			return fmt.Errorf("duplicate/empty surface name")
 		}
 		names[s.Name] = true
-		if s.Kind != "wall" && s.Kind != "roof" && s.Kind != "floor" && s.Kind != "window" && s.Kind != "skylight" {
+		if s.Kind != "wall" && s.Kind != "roof" && s.Kind != "floor" && s.Kind != "ceiling" && s.Kind != "window" && s.Kind != "skylight" {
 			return fmt.Errorf("unknown kind %s", s.Kind)
 		}
 		v := []float64{s.Area, s.R, s.Mass, s.Rho, s.Tau, s.Eps, s.Hi, s.Ho, s.Sky, s.Ground, s.GroundH, s.AbsInside}
@@ -139,6 +147,15 @@ func validate(p Input) error {
 		if s.Area <= 0 || s.R <= 0 || s.Hi <= 0 || s.Eps > 1 || s.Rho+s.Tau > 1+1e-12 || s.Sky+s.Ground > 1+1e-12 || s.AbsInside > 1 {
 			return fmt.Errorf("invalid optical/thermal parameters %s", s.Name)
 		}
+		if s.InsideEps != nil && (!finite(*s.InsideEps) || *s.InsideEps < 0 || *s.InsideEps > 1) {
+			return fmt.Errorf("invalid inside emissivity %s", s.Name)
+		}
+		if p.Protocol == "cetus-surface-8" && s.Boundary == "" {
+			return fmt.Errorf("missing boundary_condition %s", s.Name)
+		}
+		if boundaryKind(s) != "outdoors" && boundaryKind(s) != "ground" && boundaryKind(s) != "adiabatic" {
+			return fmt.Errorf("unknown boundary %s", s.Name)
+		}
 		if err := prepareBands(&s); err != nil {
 			return err
 		}
@@ -149,10 +166,13 @@ func validate(p Input) error {
 		if !transparent && s.Tau != 0 {
 			return fmt.Errorf("opaque transmission must be zero")
 		}
-		if s.Kind == "floor" && (s.GroundH <= 0 || s.Ho != 0 || s.Sky != 0 || s.Ground != 0) {
-			return fmt.Errorf("floor requires contact boundary only")
+		if boundaryKind(s) == "ground" && (transparent || s.GroundH <= 0 || s.Ho != 0 || s.Sky != 0 || s.Ground != 0) {
+			return fmt.Errorf("ground requires opaque contact boundary only: %s", s.Name)
 		}
-		if s.Kind != "floor" && math.Abs(s.Sky+s.Ground-1) > 1e-10 {
+		if boundaryKind(s) == "adiabatic" && (s.GroundH != 0 || s.Ho != 0 || s.Sky != 0 || s.Ground != 0 || len(s.LWBands) != 0) {
+			return fmt.Errorf("adiabatic exterior terms must be zero: %s", s.Name)
+		}
+		if boundaryKind(s) == "outdoors" && (math.Abs(s.Sky+s.Ground-1) > 1e-10 || s.GroundH != 0) {
 			return fmt.Errorf("external view factors must sum to one")
 		}
 		for _, l := range s.Layers {
@@ -165,12 +185,24 @@ func validate(p Input) error {
 }
 func validateHours(p Input) error {
 	spectral := false
+	allAdiabatic, capacity := true, 0.0
 	for _, s := range p.Surfaces {
-		if len(s.LWBands) > 0 {
+		allAdiabatic = allAdiabatic && boundaryKind(s) == "adiabatic"
+		if len(s.Layers) > 0 {
+			for _, l := range s.Layers {
+				capacity += s.Area * l.C
+			}
+		} else {
+			capacity += s.Area * s.Mass
+		}
+		if boundaryKind(s) == "outdoors" && len(s.LWBands) > 0 {
 			spectral = true
 		}
 	}
 	for _, h := range p.Hours {
+		if p.Protocol == "cetus-surface-8" && allAdiabatic && capacity <= 0 && h.Vent <= 0 {
+			return fmt.Errorf("fully adiabatic zone requires construction capacity or outdoor ventilation")
+		}
 		if spectral && len(h.NetworkIR) == 0 {
 			return fmt.Errorf("spectral materials require a spectral equivalent network_ir_w_m2 boundary")
 		}
@@ -185,8 +217,16 @@ func validateHours(p Input) error {
 				return fmt.Errorf("nonfinite hour")
 			}
 		}
-		if h.Air <= -273.15 || h.Ground <= -273.15 || h.SkyIR <= 0 || h.Internal < 0 || h.Heat > h.Cool || h.Vent < 0 || h.Transmitted < 0 || h.GlassInward < 0 {
+		if h.Air <= -273.15 || h.Ground <= -273.15 || h.SkyIR < 0 || h.Internal < 0 || h.Heat > h.Cool || h.Vent < 0 || h.Transmitted < 0 || h.GlassInward < 0 {
 			return fmt.Errorf("invalid hour")
+		}
+		for k, s := range p.Surfaces {
+			if p.Protocol == "cetus-surface-8" && boundaryKind(s) != "outdoors" && (h.Irr[k] != 0 || (len(h.Ho) > 0 && h.Ho[k] != 0) || (len(h.NetworkIR) > 0 && h.NetworkIR[k] != 0)) {
+				return fmt.Errorf("non-outdoor surface has external forcing: %s", s.Name)
+			}
+			if boundaryKind(s) == "outdoors" && h.SkyIR <= 0 {
+				return fmt.Errorf("outdoor surface requires positive sky IR: %s", s.Name)
+			}
 		}
 		for _, a := range [][]float64{h.Irr, h.Ho, h.NetworkIR} {
 			for _, x := range a {
@@ -326,13 +366,12 @@ func hourPrepared(p Input, h Hour, old []float64, t []topology, n, level int, w 
 				for j, id := range v.mid {
 					boundary(a, b, id, v.caps[j]/p.Dt, old[id])
 				}
-				ho := s.Ho
-				if len(h.Ho) > 0 {
-					ho = h.Ho[k]
-				}
+				ho := externalFilm(s, h, k)
 				boundary(a, b, v.ext, ho*s.Area, h.Air)
 				boundary(a, b, v.ext, s.GroundH*s.Area, h.Ground)
-				if len(h.NetworkIR) > 0 && s.Kind != "floor" {
+				if boundaryKind(s) == "adiabatic" {
+					// Zero flux at the back face; retain layers and indoor exchange.
+				} else if len(h.NetworkIR) > 0 && boundaryKind(s) == "outdoors" {
 					if len(s.LWBands) > 0 {
 						e, g := spectralEmission(s, x[v.ext])
 						a[v.ext][v.ext] += g * s.Area
@@ -352,10 +391,19 @@ func hourPrepared(p Input, h Hour, old []float64, t []topology, n, level int, w 
 					b[v.in] += h.GlassInward * s.Area / transparentArea(p)
 				}
 				link(a, v.in, z, s.Hi*s.Area)
-				link(a, v.in, rad, hr(s.Eps, x[v.in], x[rad])*s.Area)
+				link(a, v.in, rad, hr(insideEmissivity(s), x[v.in], x[rad])*s.Area)
 			}
 			b[rad] += h.Internal * p.Radiant
 			b[z] += h.Internal * (1 - p.Radiant)
+			if a[rad][rad] == 0 {
+				if b[rad] != 0 {
+					return OutputHour{}, nil, fmt.Errorf("radiant gains require nonzero inside emissivity")
+				}
+				// With no indoor radiative exchange the reporting node has no
+				// physical equation. Constrain its temperature without adding heat.
+				a[rad][rad] = 1
+				a[rad][z] = -1
+			}
 			boundary(a, b, z, h.Vent, h.Air)
 			airRow := append([]float64(nil), a[z]...)
 			airB := b[z]
@@ -391,15 +439,18 @@ func hourPrepared(p Input, h Hour, old []float64, t []topology, n, level int, w 
 		if !converged {
 			return OutputHour{}, nil, fmt.Errorf("surface network failed to converge")
 		}
-		if !fixed && x[z] < h.Heat {
+		if !fixed && hvacEnabled(h) && x[z] < h.Heat {
 			fixed = true
 			set = h.Heat
-		} else if !fixed && x[z] > h.Cool {
+		} else if !fixed && hvacEnabled(h) && x[z] > h.Cool {
 			fixed = true
 			set = h.Cool
 		} else {
 			break
 		}
+	}
+	if !fixed && p.Protocol == "cetus-surface-8" {
+		qhvac = 0
 	}
 	out, state, err := hourOutput(p, h, old, t, n, level, x, qhvac, sky, solar, weights)
 	if err == nil && w.useGuess {
@@ -460,10 +511,7 @@ func hourOutput(p Input, h Hour, old []float64, t []topology, n, level int, x []
 			out.Surfaces = append(out.Surfaces, o)
 		}
 		sw += o.Transmitted + o.Absorbed
-		ho := s.Ho
-		if len(h.Ho) > 0 {
-			ho = h.Ho[k]
-		}
+		ho := externalFilm(s, h, k)
 		out.Convection += ho * s.Area * (o.Te - h.Air)
 		if level == 2 {
 			prev := v.ext
@@ -473,10 +521,12 @@ func hourOutput(p Input, h Hour, old []float64, t []topology, n, level int, x []
 			o.StructureIntoInterior = v.links[len(v.links)-1] * (x[prev] - x[v.in])
 			o.ExteriorConvection = ho * s.Area * (o.Te - h.Air)
 			o.InteriorConvection = s.Hi * s.Area * (o.Ti - x[z])
-			o.InteriorLW = hr(s.Eps, o.Ti, x[rad]) * s.Area * (x[rad] - o.Ti)
+			o.InteriorLW = hr(insideEmissivity(s), o.Ti, x[rad]) * s.Area * (x[rad] - o.Ti)
 			o.SolarDeposited = solar * weights[k]
 			o.ExteriorContact = s.GroundH * s.Area * (o.Te - h.Ground)
-			if len(h.NetworkIR) > 0 && s.Kind != "floor" {
+			if boundaryKind(s) == "adiabatic" {
+				o.ExternalLW = 0
+			} else if len(h.NetworkIR) > 0 && boundaryKind(s) == "outdoors" {
 				o.ExternalLW = exteriorNetworkLW(s, h, k, o.Te)
 			} else {
 				o.ExternalLW = s.Area * s.Eps * (s.Sky*(sigma*fourth(o.Te)-h.SkyIR) + s.Ground*sigma*(fourth(o.Te)-fourth(h.Ground)))
@@ -485,7 +535,9 @@ func hourOutput(p Input, h Hour, old []float64, t []topology, n, level int, x []
 			out.Surfaces[len(out.Surfaces)-1] = o
 		}
 		out.GroundContact += s.GroundH * s.Area * (o.Te - h.Ground)
-		if len(h.NetworkIR) > 0 && s.Kind != "floor" {
+		if boundaryKind(s) == "adiabatic" {
+			// No exterior exchange is counted for an insulated back face.
+		} else if len(h.NetworkIR) > 0 && boundaryKind(s) == "outdoors" {
 			out.NetworkLW += exteriorNetworkLW(s, h, k, o.Te)
 		} else {
 			out.GroundLW += s.Area * s.Eps * s.Ground * sigma * (fourth(o.Te) - fourth(h.Ground))

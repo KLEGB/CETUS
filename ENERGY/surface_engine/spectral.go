@@ -48,7 +48,7 @@ func prepareBands(s *Surface) error {
 	if len(s.LWBands) == 0 {
 		return nil
 	}
-	if s.Kind == "floor" || s.Eps <= 0 {
+	if boundaryKind(*s) != "outdoors" || s.Eps <= 0 {
 		return fmt.Errorf("spectral exterior requires a nonfloor surface and positive carrier emissivity")
 	}
 	previous := 0.

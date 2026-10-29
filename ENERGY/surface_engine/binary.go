@@ -98,6 +98,7 @@ type prepared struct {
 	solves, hits, rebuilds uint64
 }
 type binarySession struct {
+	version                                                  uint16
 	models                                                   []prepared
 	step                                                     []Input
 	stepID                                                   uint64
@@ -111,6 +112,13 @@ func (s *binarySession) handle(op uint16, raw []byte) ([]byte, error) {
 	r := &reader{b: raw}
 	b := new(bytes.Buffer)
 	switch op {
+	case 0:
+		if s.version != 2 || len(raw) != 0 {
+			return nil, fmt.Errorf("CES3 v2 capabilities required")
+		}
+		putU(b, 2)
+		putU(b, 1)
+		putU(b, 7) // schema, state layout, boundary mask
 	case 1:
 		s.candidate = 0
 		count := int(r.u())
@@ -119,7 +127,11 @@ func (s *binarySession) handle(op uint16, raw []byte) ([]byte, error) {
 		}
 		models := make([]Input, count)
 		for i := range models {
-			models[i] = readModel(r)
+			if s.version == 2 {
+				models[i] = readModelV2(r)
+			} else {
+				models[i] = readModel(r)
+			}
 			if r.err != nil {
 				return nil, r.err
 			}
@@ -161,6 +173,14 @@ func (s *binarySession) handle(op uint16, raw []byte) ([]byte, error) {
 			p := m.p
 			p.Initial = r.array()
 			p.Hours = []Hour{readHour(r)}
+			if s.version == 2 {
+				enabled := r.u()
+				if enabled > 1 {
+					return nil, fmt.Errorf("invalid HVAC flag")
+				}
+				flag := enabled == 1
+				p.Hours[0].HVACEnabled = &flag
+			}
 			if r.err != nil {
 				return nil, r.err
 			}
@@ -202,7 +222,7 @@ func (s *binarySession) handle(op uint16, raw []byte) ([]byte, error) {
 		states := r.u()
 		aggregation := r.u()
 		mask := r.u()
-		if s.step == nil || id != s.stepID || level > 2 || states > 1 || aggregation > 1 || mask >= 1<<12 {
+		if s.step == nil || id != s.stepID || level > 3 || (level == 3 && s.version != 2) || states > 1 || aggregation > 1 || mask >= 1<<12 {
 			return nil, fmt.Errorf("invalid evaluate header or stale step")
 		}
 		batch := make([]Input, len(s.step))
@@ -269,7 +289,7 @@ func (s *binarySession) handle(op uint16, raw []byte) ([]byte, error) {
 		level := int(r.u())
 		states := r.u()
 		aggregation := r.u()
-		if len(raw) != 28 || id != s.stepID || s.step == nil || candidate == 0 || candidate != s.candidate || level > 2 || states > 1 || aggregation > 1 {
+		if len(raw) != 28 || id != s.stepID || s.step == nil || candidate == 0 || candidate != s.candidate || level > 3 || (level == 3 && s.version != 2) || states > 1 || aggregation > 1 {
 			return nil, fmt.Errorf("stale candidate or invalid result options")
 		}
 		s.getCalls++
@@ -384,9 +404,12 @@ func (s *binarySession) handle(op uint16, raw []byte) ([]byte, error) {
 	return b.Bytes(), r.err
 }
 func frameWrite(out io.Writer, op uint16, id uint64, raw []byte) error {
+	return frameWriteVersion(out, 1, op, id, raw)
+}
+func frameWriteVersion(out io.Writer, version uint16, op uint16, id uint64, raw []byte) error {
 	var h [24]byte
 	copy(h[:4], "CES3")
-	le.PutUint16(h[4:6], 1)
+	le.PutUint16(h[4:6], version)
 	le.PutUint16(h[6:8], op)
 	le.PutUint64(h[8:16], id)
 	le.PutUint64(h[16:24], uint64(len(raw)))
@@ -409,10 +432,12 @@ func binaryMain() {
 		op := le.Uint16(h[6:8])
 		id := le.Uint64(h[8:16])
 		n := le.Uint64(h[16:24])
-		if string(h[:4]) != "CES3" || le.Uint16(h[4:6]) != 1 || n > maxFrame {
+		version := le.Uint16(h[4:6])
+		if string(h[:4]) != "CES3" || (version != 1 && version != 2) || n > maxFrame || (s.version != 0 && s.version != version) {
 			fmt.Fprintln(os.Stderr, "invalid frame header")
 			return
 		}
+		s.version = version
 		raw := make([]byte, int(n))
 		if _, e := io.ReadFull(os.Stdin, raw); e != nil {
 			return
@@ -426,14 +451,14 @@ func binaryMain() {
 			data = []byte(e.Error())
 		}
 		writeStart := time.Now()
-		if frameWrite(os.Stdout, op, id, data) != nil {
+		if frameWriteVersion(os.Stdout, version, op, id, data) != nil {
 			return
 		}
 		s.writeSeconds += time.Since(writeStart).Seconds()
 	}
 }
 
-func writeFull(b *bytes.Buffer, h OutputHour) {
+func writeSummary(b *bytes.Buffer, h OutputHour) {
 	putF(b, h.Radiant)
 	putF(b, h.NetworkLW)
 	putF(b, h.Zone)
@@ -447,6 +472,9 @@ func writeFull(b *bytes.Buffer, h OutputHour) {
 	putF(b, h.SkyLW)
 	putF(b, h.Storage)
 	putF(b, h.Residual)
+}
+func writeFull(b *bytes.Buffer, h OutputHour) {
+	writeSummary(b, h)
 	putU(b, uint32(len(h.Surfaces)))
 	for _, s := range h.Surfaces {
 		putF(b, s.StructureIntoInterior)
@@ -541,6 +569,9 @@ func writeResults(b *bytes.Buffer, results []Output, level int, states, aggregat
 		if level == 2 {
 			writeFull(b, h)
 		}
+		if level == 3 {
+			writeSummary(b, h)
+		}
 		if states == 1 {
 			putArray(b, o.Final)
 		}
@@ -559,6 +590,9 @@ func sameArray(a, b []float64) bool {
 	return true
 }
 func sameHour(a, b Hour) bool {
+	if hvacEnabled(a) != hvacEnabled(b) {
+		return false
+	}
 	av := [...]float64{a.Air, a.Ground, a.SkyIR, a.Internal, a.Heat, a.Cool, a.Vent, a.Transmitted, a.GlassInward}
 	bv := [...]float64{b.Air, b.Ground, b.SkyIR, b.Internal, b.Heat, b.Cool, b.Vent, b.Transmitted, b.GlassInward}
 	for i, v := range av {
@@ -570,6 +604,9 @@ func sameHour(a, b Hour) bool {
 }
 
 func (s *binarySession) promote(m *prepared, p Input, level int) (OutputHour, []float64, error) {
+	if level == 3 {
+		level = 0
+	}
 	if level > m.lastLevel {
 		h, x, e := outputAt(p, m.lastHour, p.Initial, m.t, m.n, level, m.lastX, m.lastOut.HVAC)
 		if e != nil {
@@ -582,6 +619,9 @@ func (s *binarySession) promote(m *prepared, p Input, level int) (OutputHour, []
 	return m.lastOut, m.lastX, nil
 }
 func (s *binarySession) solveBuilding(m *prepared, p Input, level int) (OutputHour, []float64, error) {
+	if level == 3 {
+		level = 0
+	}
 	if s.cacheEnabled && m.valid && sameHour(m.lastHour, p.Hours[0]) {
 		m.hits++
 		return s.promote(m, p, level)
